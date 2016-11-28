@@ -1,0 +1,673 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import traceback
+
+from seiscomp3 import Client, Config, Core, DataModel, Logging, Seismology
+
+
+def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
+    return abs(a - b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
+
+
+class OriginMerger(Client.Application):
+    """
+    Merge 2 origins inside events by author names.
+    """
+
+    def __init__(self, argc, argv):
+        Client.Application.__init__(self, argc, argv)
+        self.setMessagingEnabled(True)
+        self.setDatabaseEnabled(True, True)
+        self.setDaemonEnabled(True)
+        self.setMessagingUsername('')
+
+        self.events = []
+        self.primary_origin = None
+        self.secondary_origin = None
+        self.origin_merged = None
+        # Store arrivals from station not in the inventory
+        self.unknown_arrivals = []
+
+        # Configuration variables (or arguments of the script)
+        self.mode_test = False
+        self.group_remove = None
+        self.remove_merged_origin = False
+        self.start_time = None
+        self.begin_time = None
+        self.event_id = None
+        self.author = os.path.basename(__file__)
+        self.primary_origin_authors = []
+        self.secondary_origin_authors = []
+        self.evaluation_mode = 'automatic'
+        self.fixed_depth = None
+        self.distance_cut_off = None
+        self.ignore_initial_location = False
+
+    def init(self):
+        try:
+            if not Client.Application.init(self):
+                return False
+
+            self.db_query = DataModel.DatabaseQuery(self.database())
+
+            self.locator = Seismology.LocatorInterface.Create('LOCSAT')
+            self.locator.init(self.configuration())
+
+            return True
+        except:
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            raise
+
+        return False
+
+    def initConfiguration(self):
+        try:
+            if not Client.Application.initConfiguration(self):
+                return False
+
+            try:
+                self.mode_test = self.configGetBool('mode.test')
+            except Config.Exception:
+                pass
+            try:
+                self.group_remove = \
+                    self.configGetString('connection.groupRemove')
+            except Config.Exception:
+                pass
+            try:
+                self.author = self.configGetString('input.author')
+            except Config.Exception:
+                pass
+            try:
+                self.primary_origin_authors = \
+                    list(self.configGetStrings('input.primaryOriginAuthors'))
+            except Config.Exception:
+                pass
+            try:
+                self.secondary_origin_authors = \
+                    list(self.configGetStrings('input.secondaryOriginAuthors'))
+            except Config.Exception:
+                pass
+            try:
+                self.evaluation_mode = \
+                    self.configGetString('input.evaluationMode')
+            except Config.Exception:
+                pass
+            try:
+                self.fixed_depth = self.configGetDouble('input.fixedDepth')
+            except Config.Exception:
+                pass
+            try:
+                self.distance_cut_off = \
+                    self.configGetDouble('input.distanceCutOff')
+            except Config.Exception:
+                pass
+            try:
+                self.ignore_initial_location = \
+                    self.configGetBool('input.ignoreInitialLocation')
+            except Config.Exception:
+                pass
+
+            return True
+        except:
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            raise
+
+        return False
+
+    def createCommandLineDescription(self):
+        """
+        Define parameters available at the command execution
+        """
+        self.commandline().addGroup('Mode')
+        self.commandline().addOption(
+            'Mode',
+            'test,T',
+            'test mode, do not write object in database')
+        self.commandline().addOption(
+            'Mode',
+            'remove-merged-origin,R',
+            "don't merge origin but remove merged origins")
+        self.commandline().addGroup('Input')
+        self.commandline().addStringOption(
+            'Input',
+            'begin',
+            'specify the lower bound of the time interval '
+            '(example: 2016-03-01T00:00:00.0)')
+        self.commandline().addStringOption(
+            'Input',
+            'end',
+            'specify the upper bound of the time interval '
+            '(example: 2016-03-01T00:00:00.0)')
+        self.commandline().addStringOption(
+            'Input',
+            'event,E',
+            'event ID')
+        self.commandline().addStringOption(
+            'Input',
+            'author,Au',
+            'author')
+        self.commandline().addStringOption(
+            'Input',
+            'evaluation-mode',
+            'origin evaluation mode (manual or automatic)')
+        self.commandline().addGroup('LocSAT')
+        self.commandline().addStringOption(
+            'LocSAT',
+            'fixed-depth',
+            'fix depth')
+        self.commandline().addStringOption(
+            'LocSAT',
+            'distance-cut-off',
+            'distance cut off')
+        self.commandline().addOption(
+            'LocSAT',
+            'ignore-initial-location',
+            'ignore initial location')
+
+    def validateParameters(self):
+        """
+        Retrieve parameters passed at the command execution
+        """
+        try:
+            if Client.Application.validateParameters(self) is False:
+                return False
+
+            self.mode_test = self.commandline().hasOption('test')
+            self.remove_merged_origin = \
+                self.commandline().hasOption('remove-merged-origin')
+
+            if self.commandline().hasOption('begin') \
+                    and self.commandline().hasOption('end'):
+                self.start_time = self.commandline().optionString('begin')
+                self.end_time = self.commandline().optionString('end')
+            if self.commandline().hasOption('event'):
+                self.event_id = self.commandline().optionString('event')
+            if self.commandline().hasOption('author'):
+                self.author = self.commandline().optionString('author')
+            if self.commandline().hasOption('evaluation-mode'):
+                self.evaluation_mode = \
+                    self.commandline().optionString('evaluation-mode')
+
+            if self.commandline().hasOption('fixed-depth'):
+                fixed_depth = self.commandline().optionString('fixed-depth')
+                self.fixed_depth = float(fixed_depth)
+            if self.commandline().hasOption('distance-cut-off'):
+                dcu = self.commandline().optionString('distance_cut_off')
+                self.distance_cut_off = float(dcu)
+            self.ignore_initial_location = \
+                self.commandline().hasOption('ignore-initial-location')
+            return True
+        except:
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            raise
+
+        return False
+
+    def _retrieve_primary_origin(self, event):
+        """
+        Retrieve the primary origin.
+
+        The origin must be the preferred origin of the event.
+        """
+        self.primary_origin = None
+
+        type_info = DataModel.Origin.TypeInfo()
+        origin_id = event.preferredOriginID()
+        preferred_origin = self.db_query.loadObject(type_info, origin_id)
+        preferred_origin = DataModel.Origin.Cast(preferred_origin)
+
+        if preferred_origin and preferred_origin.creationInfo():
+            agency = preferred_origin.creationInfo().agencyID()
+            if agency in self.primary_origin_authors:
+                self.primary_origin = preferred_origin
+
+    def _retrieve_secondary_and_merged_origins(self, event):
+        """
+        Retrieve the secondary origin and the merged origins.
+        """
+        origins = [ori for ori in self.db_query.getOrigins(event.publicID())]
+        # This DB query must be finished before we start iterating over
+        # the events as otherwise we get nested queries, which are not
+        # allowed.
+        secondary_origin = None
+        origin_merged = None
+
+        for origin in origins:
+            origin = DataModel.Origin.Cast(origin)
+
+            if not origin:
+                continue
+
+            type_info = DataModel.Origin.TypeInfo()
+            origin_id = origin.publicID()
+            agency_id = origin.creationInfo().agencyID()
+            author = origin.creationInfo().author()
+
+            if secondary_origin is None and \
+                    agency_id in self.secondary_origin_authors:
+                secondary_origin = \
+                    self.db_query.loadObject(type_info, origin_id)
+                secondary_origin = DataModel.Origin.Cast(secondary_origin)
+
+            if origin_merged is None and author == self.author:
+                origin_merged = self.db_query.loadObject(type_info, origin_id)
+                origin_merged = DataModel.Origin.Cast(origin_merged)
+
+            if secondary_origin and origin_merged:
+                break
+
+        self.secondary_origin = secondary_origin
+        self.origin_merged = origin_merged
+
+    def _copy_arrivals(self, origin_source, origin_dest):
+        """
+        Copy the arrival from an origin to the other.
+        """
+        # Load picks of the origin dest and store them in that list.
+        # Usefull to know if an arrival is already in the origin
+        # (with network/station/phase code).
+        picks_dest = []
+        for i in xrange(origin_dest.arrivalCount()):
+            arrival_dest = origin_dest.arrival(i)
+            pick_dest_id = arrival_dest.pickID()
+            pick_dest = self.db_query.loadObject(DataModel.Pick.TypeInfo(),
+                                                 pick_dest_id)
+            pick_dest = DataModel.Pick.Cast(pick_dest)
+            picks_dest.append(pick_dest)
+
+        for i in xrange(origin_source.arrivalCount()):
+            arrival = origin_source.arrival(i)
+            new_arrival = DataModel.Arrival(arrival)
+
+            pick_id = arrival.pickID()
+            pick = self.db_query.loadObject(DataModel.Pick.TypeInfo(), pick_id)
+            pick = DataModel.Pick.Cast(pick)
+            network_code = pick.waveformID().networkCode()
+            station_code = pick.waveformID().stationCode()
+
+            # Check that the arrival is not already in the list
+            for pick_dest in picks_dest:
+                network_code_dest = pick_dest.waveformID().networkCode()
+                station_code_dest = pick_dest.waveformID().stationCode()
+                if pick.phaseHint().code() == pick_dest.phaseHint().code() \
+                        and network_code == network_code_dest \
+                        and station_code == station_code_dest:
+                    # Arrival is already in the list, set a weight of 0 if the
+                    # other arrival has a weight
+                    if arrival_dest.weight() > 0:
+                        new_arrival.setWeight(0)
+
+            # Check that station is in inventory
+            station = self.db_query.getStation(network_code, station_code,
+                                               pick.time().value())
+            if station is None:
+                # Station is not in the inventory, arrival must be added
+                # to the origin after the relocation.
+                # But before check that arrival is already in the list
+                # (same pick ID).
+                if all(arrival.pickID() != new_arrival.pickID() for arrival in
+                       self.unknown_arrivals):
+                    self.unknown_arrivals.append(new_arrival)
+            else:
+                origin_dest.add(new_arrival)
+
+    def _copy_magnitudes(self, origin_source, origin_dest):
+        """
+        Copy the magnitudes from an origin to the other.
+        """
+        for i in xrange(origin_source.magnitudeCount()):
+            magnitude = origin_source.magnitude(i)
+            new_magnitude = DataModel.Magnitude(magnitude)
+            DataModel.PublicObject.GenerateId(new_magnitude)
+            origin_dest.add(new_magnitude)
+
+    def _copy_station_magnitudes(self, origin_source, origin_dest):
+        """
+        Copy the station magnitudes from an origin to the other.
+        """
+        for i in xrange(origin_source.stationMagnitudeCount()):
+            station_magnitude = origin_source.stationMagnitude(i)
+            new_station_magnitude = \
+                DataModel.StationMagnitude(station_magnitude)
+            DataModel.PublicObject.GenerateId(new_station_magnitude)
+            origin_dest.add(new_station_magnitude)
+
+    def _merge_origin(self, event):
+        """
+        Get the primary and secondary origins and return a new origin with the
+        Arrivals, Magnitude and StationMagnitude of both origins.
+        """
+        self._retrieve_secondary_and_merged_origins(event)
+        if self.origin_merged:
+            if self.remove_merged_origin:
+                Logging.warning('Remove merged origin')
+                self._remove(event, self.origin_merged)
+            elif not self.secondary_origin:
+                Logging.warning('No secondary origin found, remove merged '
+                                'origin')
+                self._remove(event, self.origin_merged)
+            elif (self.origin_merged.creationInfo().creationTime() <
+                    self.secondary_origin.creationInfo().creationTime()):
+                Logging.warning('Secondary origin is newer than merged '
+                                'origin, remove merged origin')
+                self._remove(event, self.origin_merged)
+            else:
+                Logging.warning('Origins already merged')
+
+            return None
+
+        if self.remove_merged_origin:
+            return None
+
+        if not self.secondary_origin:
+            return None
+
+        self._retrieve_primary_origin(event)
+        if not self.primary_origin:
+            return None
+
+        new_origin = DataModel.Origin(self.primary_origin)
+
+        self.unknown_arrivals = []
+
+        self._copy_arrivals(self.primary_origin, new_origin)
+        self._copy_arrivals(self.secondary_origin, new_origin)
+
+        arrival_count = new_origin.arrivalCount() + len(self.unknown_arrivals)
+        if arrival_count == self.primary_origin.arrivalCount():
+            # Nothing to merge, no new arrivals
+            return None
+
+        self._copy_station_magnitudes(self.primary_origin, new_origin)
+        self._copy_station_magnitudes(self.secondary_origin, new_origin)
+        self._copy_magnitudes(self.primary_origin, new_origin)
+        if self.primary_origin.magnitudeCount() == 0:
+            self._copy_magnitudes(self.secondary_origin, new_origin)
+
+        Logging.debug('Origins %s and %s merged' %
+                      (self.primary_origin.publicID(),
+                       self.secondary_origin.publicID()))
+
+        return new_origin
+
+    def _relocate(self, origin):
+        """
+        Relocate the origin passed in parameter and return the new
+        origin.
+        """
+        # Load picks for the relocation (even if they aren't passed in
+        # parameters)
+        picks = []
+        for i in xrange(origin.arrivalCount()):
+            arrival = origin.arrival(i)
+            pick_id = arrival.pickID()
+            pick = self.db_query.loadObject(DataModel.Pick.TypeInfo(), pick_id)
+            pick = DataModel.Pick.Cast(pick)
+            picks.append(pick)
+
+        # Load inventory
+        inv = DataModel.Inventory()
+        self.db_query.loadNetworks(inv)
+        for i in xrange(inv.networkCount()):
+            self.db_query.load(inv.network(i))
+
+        # Prepare the locator
+        self.locator.setProfile(origin.earthModelID())
+        fixed_depth = self.fixed_depth
+        depth_uncertainty = None
+        try:
+            depth_uncertainty = origin.depth().uncertainty()
+        except Core.ValueException:
+            pass
+        if fixed_depth is not None:
+            self.locator.useFixedDepth(True)
+            self.locator.setFixedDepth(self.fixed_depth)
+        elif depth_uncertainty is None or depth_uncertainty == 0.0:
+            self.locator.useFixedDepth(True)
+            self.locator.setFixedDepth(origin.depth().value())
+        if self.distance_cut_off is not None:
+            self.locator.setDistanceCutOff(self.distance_cut_off)
+        self.locator.setIgnoreInitialLocation(self.ignore_initial_location)
+
+        # Let's go! Time to relocate!
+        try:
+            new_origin = self.locator.relocate(origin)
+        except Core.GeneralException:
+            Logging.error('Error in relocating')
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            return None
+
+        # There are some modifications to do on the generated origin
+        agency = origin.creationInfo().agencyID()
+        new_origin.creationInfo().setAgencyID(agency)
+        new_origin.creationInfo().setAuthor(self.author)
+
+        if self.evaluation_mode.lower() == 'automatic':
+            new_origin.setEvaluationMode(DataModel.AUTOMATIC)
+        elif self.evaluation_mode.lower() == 'manual':
+            new_origin.setEvaluationMode(DataModel.MANUAL)
+
+        new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
+
+        # Add arrivals from station not found in the inventory
+        for arrival in self.unknown_arrivals:
+            # Since these arrivals wasn't used to relocated,
+            # put a weight of 0.
+            arrival.setWeight(0)
+            new_origin.add(arrival)
+
+        # Normally, magnitudes should be recalculated after relocation.
+        self._copy_magnitudes(origin, new_origin)
+        self._copy_station_magnitudes(origin, new_origin)
+
+        return new_origin
+
+    def _update_preferred_origin(self, event):
+        """
+        Create a Journaling notifier to update the preferred origin of
+        the event.
+        """
+        journaling = DataModel.Journaling()
+        journal_entry = DataModel.JournalEntry()
+        journal_entry.setCreated(Core.Time_GMT())
+        journal_entry.setSender(self.author)
+        # No doc at all for 'EvPrefOrgAutomatic' (see eventttool.cpp)
+        journal_entry.setAction('EvPrefOrgAutomatic')
+        journal_entry.setObjectID(event.publicID())
+        journaling.add(journal_entry)
+
+    def _remove(self, event, origin):
+        """
+        Remove the origin from the event and update the database.
+        """
+        if self.mode_test:
+            return
+
+        ep = DataModel.EventParameters()
+        self.db_query.loadOrigins(ep)
+        self.db_query.loadOriginReferences(event)
+
+        DataModel.Notifier.Enable()
+
+        removed_origin_id = None
+        preferred_origin_id = None
+        for i in xrange(event.originReferenceCount()):
+            origin_reference = event.originReference(i)
+            if origin_reference.originID() == origin.publicID():
+                removed_origin_id = origin.publicID()
+                event.removeOriginReference(i)
+            else:
+                preferred_origin_id = origin_reference.originID()
+
+        # If the preferred origin is removed, choose an other one
+        if preferred_origin_id and \
+                event.preferredOriginID() == removed_origin_id:
+            event.setPreferredOriginID(preferred_origin_id)
+            DataModel.Notifier.Create(ep, DataModel.OP_UPDATE, event)
+
+        ep.remove(origin)
+
+        self._update_preferred_origin(event)
+
+        DataModel.Notifier.Disable()
+
+        message = DataModel.Notifier.GetMessage(True)
+        self.connection().send(self.group_remove, message)
+
+    def _send(self, event, origin):
+        """
+        Add the origin to the event and update the database with the
+        new objects.
+        """
+        if self.mode_test:
+            return
+
+        ep = DataModel.EventParameters()
+
+        DataModel.Notifier.Enable()
+
+        ep.add(origin)
+        origin_reference = DataModel.OriginReference(origin.publicID())
+        event.add(origin_reference)
+
+        DataModel.Notifier.Disable()
+
+        message = DataModel.Notifier.GetMessage(True)
+        self.connection().send(message)
+
+    def _process(self, event):
+        """
+        Merge origins, relocate and write to the database.
+        """
+        Logging.debug('Receiving event %s' % event.publicID())
+
+        origin = self._merge_origin(event)
+
+        if origin:
+            origin_relocated = self._relocate(origin)
+
+            if not origin_relocated and self.fixed_depth is None:
+                # Retry relocation with secondary origin fixed depth.
+                # This is not perfect since this second try doesn't
+                # depend on the exception catch. It retries too much.
+                depth_uncertainty = None
+                try:
+                    depth_uncertainty = \
+                        self.secondary_origin.depth().uncertainty()
+                except Core.ValueException:
+                    pass
+                if depth_uncertainty is None or depth_uncertainty == 0.0:
+                    origin.setDepth(self.secondary_origin.depth())
+                    origin_relocated = self._relocate(origin)
+
+            if origin_relocated:
+                Logging.debug('Origin %s relocated' %
+                              origin_relocated.publicID())
+                self._send(event, origin_relocated)
+        else:
+            Logging.debug('Nothing to merge')
+
+    def handleMessage(self, message):
+        self.events = []
+        # Call addObject, removeObject and updateObject
+        Client.Application.handleMessage(self, message)
+
+        Logging.debug("processed %s events" % len(self.events))
+        for event in self.events:
+            self._process(event)
+
+    def _process_object(self, parentID, object_):
+        try:
+            event = DataModel.Event.Cast(object_)
+            if not event:
+                event = self.db_query.getEventByPublicID(parentID)
+
+            if not event:
+                journal_entry = DataModel.JournalEntry.Cast(object_)
+                event_id = journal_entry.objectID()
+                event = self.db_query.getEventByPublicID(event_id)
+
+            if event and not any(event.publicID() == e.publicID()
+                                 for e in self.events):
+                self.events.append(event)
+        except:
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            raise
+
+    def addObject(self, parentID, object_):
+        """
+        Called when a new object is received.
+        """
+        self._process_object(parentID, object_)
+
+    def removeObject(self, parentID, object_):
+        """
+        Called when a object is removed.
+        """
+        self._process_object(parentID, object_)
+
+    def updateObject(self, parentID, object_):
+        """
+        Called when an updated object is received.
+        """
+        self._process_object(parentID, object_)
+
+    def run(self):
+        try:
+            # Case when an event_id was given in argument
+            if self.event_id:
+                event = self.db_query.getEventByPublicID(self.event_id)
+                if event:
+                    self._process(event)
+                else:
+                    Logging.error(
+                        "Can't find event with publicID %s" % self.event_id)
+
+                return True
+            # Case when dates were given in argument
+            elif self.start_time and self.end_time:
+                start_time = Core.Time.FromString(self.start_time, '%FT%T')
+                end_time = Core.Time.FromString(self.end_time, '%FT%T')
+
+                event_iterator = self.db_query.getEvents(start_time, end_time)
+                events = [event for event in event_iterator]
+                # This DB query must be finished before we start iterating over
+                # the events as otherwise we get nested queries, which are not
+                # allowed.
+                for event in events:
+                    event = DataModel.Event.Cast(event)
+
+                    if event:
+                        self._process(event)
+
+                return True
+
+            # Case without arguments, the application listen the EVENT
+            # messaging.
+            return Client.Application.run(self)
+        except:
+            info = traceback.format_exception(*sys.exc_info())
+            for i in info:
+                sys.stderr.write(i)
+            raise
+
+        return False
+
+
+if __name__ == "__main__":
+    app = OriginMerger(len(sys.argv), sys.argv)
+    app()

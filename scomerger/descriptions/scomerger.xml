@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<seiscomp>
+	<module name="scomerger" category="Processing">
+		<description>Associates an Origin to an Event or forms a new Event if no match is found. Selects the preferred magnitude.</description>
+		<configuration>
+                    <group name="mode">
+			<parameter name="test" type="boolean" default="false">
+                            <description>
+                                Test mode, do not write object in database.
+                            </description>
+			</parameter>
+                    </group>
+                    <group name="connection">
+                        <parameter name="groupRemove" type="string">
+                            <description>
+                                Defines the group where the module sends the messages to remove origins.
+                            </description>
+                        </parameter>
+                    </group>
+                    <group name="input">
+                        <parameter name="author" type="string">
+                            <description>
+                                Defines merged origin author.
+                            </description>
+                        </parameter>
+                        <parameter name="primaryOriginAuthors" type="list:string">
+                            <description>
+                                Primary author list.
+                            </description>
+                        </parameter>
+                        <parameter name="secondaryOriginAuthors" type="list:string">
+                            <description>
+                                Secondary author list.
+                            </description>
+                        </parameter>
+                        <parameter name="evaluationMode" type="string" default="automatic">
+                            <description>
+                                The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
+                            </description>
+                        </parameter>
+                        <parameter name="fixedDepth" type="double">
+                            <description>
+                                Fix depth.
+                            </description>
+                        </parameter>
+                        <parameter name="distanceCutOff" type="double">
+                            <description>
+                                Distance cut off.
+                            </description>
+                        </parameter>
+			<parameter name="ignoreInitialLocation" type="boolean" default="false">
+                            <description>
+                                Ignore initial location.
+                            </description>
+			</parameter>
+                    </group>
+		</configuration>
+		<command-line>
+			<group name="Generic">
+				<optionReference>generic#help</optionReference>
+				<optionReference>generic#version</optionReference>
+				<optionReference>generic#config-file</optionReference>
+				<optionReference>generic#plugins</optionReference>
+				<optionReference>generic#daemon</optionReference>
+				<optionReference>generic#auto-shutdown</optionReference>
+				<optionReference>generic#shutdown-master-module</optionReference>
+				<optionReference>generic#shutdown-master-username</optionReference>
+				<option flag="x" long-flag="expiry" argument="time">
+					<description>Time span in hours after which objects expire.</description>
+				</option>
+				<option flag="O" long-flag="origin-id" argument="publicID">
+					<description>
+						OriginID to be associated. When given no messages are sent.
+						Only the status of the association is written to stdout.
+					</description>
+				</option>
+			</group>
+
+			<group name="Verbosity">
+				<optionReference>verbosity#verbosity</optionReference>
+				<optionReference>verbosity#v</optionReference>
+				<optionReference>verbosity#quiet</optionReference>
+				<optionReference>verbosity#component</optionReference>
+				<optionReference>verbosity#syslog</optionReference>
+				<optionReference>verbosity#lockfile</optionReference>
+				<optionReference>verbosity#console</optionReference>
+				<optionReference>verbosity#debug</optionReference>
+				<optionReference>verbosity#log-file</optionReference>
+			</group>
+
+			<group name="Messaging">
+				<optionReference>messaging#user</optionReference>
+				<optionReference>messaging#host</optionReference>
+				<optionReference>messaging#timeout</optionReference>
+				<optionReference>messaging#primary-group</optionReference>
+				<optionReference>messaging#subscribe-group</optionReference>
+				<optionReference>messaging#encoding</optionReference>
+				<optionReference>messaging#start-stop-msg</optionReference>
+			</group>
+
+			<group name="Database">
+				<optionReference>database#db-driver-list</optionReference>
+				<optionReference>database#database</optionReference>
+				<optionReference>database#config-module</optionReference>
+				<optionReference>database#inventory-db</optionReference>
+				<optionReference>database#db-disable</optionReference>
+			</group>
+		</command-line>
+	</module>
+</seiscomp>
