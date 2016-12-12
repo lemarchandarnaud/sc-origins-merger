@@ -8,37 +8,34 @@ new origin is created with arrivals from both origins and then a relocation
 
 `scomerger` works like this:
 
-- it listens to `EVENT` messages from `scevent2`from the *secondary* pipeline,
+- it listens to `EVENT` messages from `scevent`,
 - when a `EVENT` message is received :
 
     - if the preferred origin is already a merged origin, `scomerger` send a
-	  message to `scevent2` to remove this merged origin. `scevent2` selects then
-	  a new preferred origin and sends a new `EVENT` message (which will be
-	  received and processed by `scomerger`).
+	  message to `scevent` to remove this merged origin. `scevent` selects
+      then a new preferred origin and sends a new `EVENT` message (which will
+      be received and processed by `scomerger`).
 	- if the preferred origin is from the *primary* author, `scomerger` merges
 	  the origin from the *primary* author with the *secondary* one. A new
 	  origin is created with the arrivals of both origins and relocated with
 	  `LOCSAT` (magnitude is not yet updated for the moment).
-    - `scomerger` send a message to `scevent2` to create the new origin in the
+    - `scomerger` send a message to `scevent` to create the new origin in the
 	  database. An `originreference` is created as well to associate the origin
-	  to the event. `scevent2` selects also a new preferred origin.
+	  to the event. `scevent` selects also a new preferred origin.
 
   > **Note**
   >
-  > Merged origin has **scomerger** as AUTHOR (used to know if it's a merged 
+  > Merged origin has **scomerger** as AUTHOR (used to know if it's a merged
   > origin).
   >
   > Merged origin `EvaluationMode` is set to `automatic`.
   >
-  > Origins coming from *secondary* (author|pipeline) must be created after
-  > *primary* ones.
-
-  > Every modifications of the database must be done by `scevent2`. That's why
+  > `scomerger` can send the messages to 2 differents `scevent`. The actions of
+  > removing merged origins and merging can indeed be separated (parameters
+  > `scomerger/connection/groupRemove` and `global/connection/primaryGroup`).
+  >
+  > Every modifications of the database must be done by `scevent`. That's why
   > `scomerger` send messages to it.
-
-`scomerger` was designed to work separately from the mainstream to avoid 
-nested messages. `scomerger` indeed listen to `EVENT` messaging group on a 
-dedicated *secondary* pipeline but also send messages to it.
 
 ![Schéma](docs/schema.png)
 
