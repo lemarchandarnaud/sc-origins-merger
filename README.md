@@ -4,7 +4,7 @@ SCOMERGER
 `scomerger` is a seiscomp3 application which aims to merge origins belonging
 to the same event and from 2 differents authors (*primary* and *secondary*). A
 new origin is created with arrivals from both origins and then a relocation
-(LocSAT) is done.
+(LocSAT with iaspei91 profile by default) is done.
 
 `scomerger` works like this:
 
@@ -15,8 +15,9 @@ new origin is created with arrivals from both origins and then a relocation
 	  message to `scevent` to remove this merged origin. `scevent` selects
       then a new preferred origin and sends a new `EVENT` message (which will
       be received and processed by `scomerger`).
-	- if the preferred origin is from the *primary* author, `scomerger` merges
-	  the origin from the *primary* author with the *secondary* one. A new
+	- if the preferred origin is from one of the *primary* agency and has an evaluationMode that matches
+    the input.evaluation_mode, `scomerger` merges
+	  the origin from the *primary* agency with the most recent *secondary* one. A new
 	  origin is created with the arrivals of both origins and relocated with
 	  `LOCSAT` (magnitude is not yet updated for the moment).
     - `scomerger` send a message to `scevent` to create the new origin in the

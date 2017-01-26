@@ -17,25 +17,15 @@
                             </description>
                         </parameter>
                     </group>
-                    <group name="input">
-                        <parameter name="author" type="string">
+                    <group name="locator">
+                        <parameter name="type" type="string" default="LOCSAT">
                             <description>
-                                Defines merged origin author.
+                                Defines the locator to be used, such as NonLinLoc, Hypo71 or LOCSAT
                             </description>
                         </parameter>
-                        <parameter name="primaryOriginAuthors" type="list:string">
+                        <parameter name="profile" type="string" default="iasp91">
                             <description>
-                                Primary author list.
-                            </description>
-                        </parameter>
-                        <parameter name="secondaryOriginAuthors" type="list:string">
-                            <description>
-                                Secondary author list.
-                            </description>
-                        </parameter>
-                        <parameter name="evaluationMode" type="string" default="automatic">
-                            <description>
-                                The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
+                                The locator profile to use
                             </description>
                         </parameter>
                         <parameter name="fixedDepth" type="double">
@@ -48,13 +38,47 @@
                                 Distance cut off.
                             </description>
                         </parameter>
-			<parameter name="ignoreInitialLocation" type="boolean" default="false">
+                        <parameter name="ignoreInitialLocation" type="boolean" default="false">
                             <description>
                                 Ignore initial location.
                             </description>
-			</parameter>
+                        </parameter>
                     </group>
-		</configuration>
+                    <group name="input">
+                        <parameter name="primaryOriginAgencyIDs" type="list:string">
+                            <description>
+                                Primary agencyID list.
+                            </description>
+                        </parameter>
+                        <parameter name="secondaryOriginAgencyIDs" type="list:string">
+                            <description>
+                                Secondary agencyID list.
+                            </description>
+                        </parameter>
+                        <parameter name="evaluationMode" type="string">
+                            <description>
+                                The evaluation mode of the input origins. Can be either &quot;manual&quot;,  &quot;automatic&quot; or blank.
+                            </description>
+                        </parameter>
+                    </group>
+                    <group name="output">
+                        <parameter name="author" type="string">
+                            <description>
+                                Defines merged origin author.
+                            </description>
+                        </parameter>
+                        <parameter name="agencyID" type="string">
+                            <description>
+                                Defines merged origin agencyID.
+                            </description>
+                        </parameter>
+                        <parameter name="evaluationMode" type="string" default="automatic">
+                            <description>
+                                The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
+                            </description>
+                        </parameter>
+                    </group>
+        </configuration>
 		<command-line>
 			<group name="Generic">
 				<optionReference>generic#help</optionReference>
