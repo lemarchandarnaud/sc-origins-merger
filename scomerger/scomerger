@@ -17,6 +17,12 @@ class OriginMerger(Client.Application):
     Merge 2 origins inside events by author names.
     """
 
+    # Convert an evaluation mode string to the correct enum
+    EVALUATION_MODES = {
+        'automatic': DataModel.AUTOMATIC,
+        'manual': DataModel.MANUAL,
+    }
+
     def __init__(self, argc, argv):
         Client.Application.__init__(self, argc, argv)
         self.setMessagingEnabled(True)
@@ -66,14 +72,6 @@ class OriginMerger(Client.Application):
             self.locator.init(self.configuration())
             self.locator.setProfile(self.locator_profile)
 
-            if self.input_evaluation_mode is not None:
-                if self.input_evaluation_mode.lower() == 'automatic':
-                    self.inputEvaluationMode = DataModel.AUTOMATIC
-                elif self.input_evaluation_mode.lower() == 'manual':
-                    self.inputEvaluationMode = DataModel.MANUAL
-                else:
-                    self.input_evaluation_mode = None
-
             return True
         except:
             info = traceback.format_exception(*sys.exc_info())
@@ -109,9 +107,11 @@ class OriginMerger(Client.Application):
             except Config.Exception:
                 pass
             try:
+
+                mode = self.configGetString('input.evaluationMode')
                 self.input_evaluation_mode = \
-                    self.configGetString('input.evaluationMode')
-            except Config.Exception:
+                    OriginMerger.EVALUATION_MODES[mode.lower()]
+            except (Config.Exception, KeyError):
                 pass
             try:
                 self.author = self.configGetString('output.author')
@@ -283,17 +283,16 @@ class OriginMerger(Client.Application):
             evaluation_mode = preferred_origin.evaluationMode()
             if agency_id in self.primary_origin_agencyIDs:
                 if (self.input_evaluation_mode is None or
-                        evaluation_mode == self.inputEvaluationMode):
+                        evaluation_mode == self.input_evaluation_mode):
                     self.primary_origin = preferred_origin
                     Logging.debug('Origin %s qualified for primary origin '
                                   'with agencyID %s' % (origin_id, agency_id))
-                else:
-                    if evaluation_mode == DataModel.AUTOMATIC:
-                        Logging.info('Preferred origin not eligible, '
-                                     'evaluationMode automatic not allowed')
-                    elif evaluation_mode == DataModel.MANUAL:
-                        Logging.info('Preferred origin not eligible, '
-                                     'evaluationMode manual not allowed')
+                elif evaluation_mode == DataModel.AUTOMATIC:
+                    Logging.info('Preferred origin not eligible, '
+                                 'evaluationMode automatic not allowed')
+                elif evaluation_mode == DataModel.MANUAL:
+                    Logging.info('Preferred origin not eligible, '
+                                 'evaluationMode manual not allowed')
             else:
                 Logging.info('Preferred origin not eligible, agency %s not in '
                              'PrimaryOriginAgencyIDs' % agency_id)
@@ -324,7 +323,7 @@ class OriginMerger(Client.Application):
 
             if origin_id != self.primary_origin.publicID():
                 if (self.input_evaluation_mode is None or
-                        evaluation_mode == self.inputEvaluationMode):
+                        evaluation_mode == self.input_evaluation_mode):
                     if agency_id in self.secondary_origin_agencyIDs:
                         if secondary_origin is None:
                             secondary_origin = \
@@ -353,13 +352,12 @@ class OriginMerger(Client.Application):
                     else:
                         Logging.debug('Origin %s failed to qualify: wrong '
                                       'agencyID %s' % (origin_id, agency_id))
-                else:
-                    if evaluation_mode == DataModel.AUTOMATIC:
-                        Logging.info('Origin not eligible, evaluationMode '
-                                     'automatic not allowed')
-                    elif evaluation_mode == DataModel.MANUAL:
-                        Logging.info('Origin not eligible, evaluationMode '
-                                     'manual not allowed')
+                elif evaluation_mode == DataModel.AUTOMATIC:
+                    Logging.info('Origin not eligible, evaluationMode '
+                                 'automatic not allowed')
+                elif evaluation_mode == DataModel.MANUAL:
+                    Logging.info('Origin not eligible, evaluationMode '
+                                 'manual not allowed')
             else:
                     Logging.debug('Origin %s already qualified for primary '
                                   'origin' % origin_id)
