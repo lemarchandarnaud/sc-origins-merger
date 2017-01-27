@@ -367,9 +367,6 @@ class OriginMerger(Client.Application):
                 origin_merged = self.db_query.loadObject(type_info, origin_id)
                 origin_merged = DataModel.Origin.Cast(origin_merged)
 
-            if secondary_origin and origin_merged:
-                break
-
         self.secondary_origin = secondary_origin
         self.origin_merged = origin_merged
 
