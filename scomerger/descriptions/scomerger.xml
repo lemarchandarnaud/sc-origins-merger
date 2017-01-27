@@ -3,58 +3,82 @@
 	<module name="scomerger" category="Processing">
 		<description>Associates an Origin to an Event or forms a new Event if no match is found. Selects the preferred magnitude.</description>
 		<configuration>
-                    <group name="mode">
-			<parameter name="test" type="boolean" default="false">
-                            <description>
-                                Test mode, do not write object in database.
-                            </description>
-			</parameter>
-                    </group>
-                    <group name="connection">
-                        <parameter name="groupRemove" type="string">
-                            <description>
-                                Defines the group where the module sends the messages to remove origins.
-                            </description>
-                        </parameter>
-                    </group>
-                    <group name="input">
-                        <parameter name="author" type="string">
-                            <description>
-                                Defines merged origin author.
-                            </description>
-                        </parameter>
-                        <parameter name="primaryOriginAuthors" type="list:string">
-                            <description>
-                                Primary author list.
-                            </description>
-                        </parameter>
-                        <parameter name="secondaryOriginAuthors" type="list:string">
-                            <description>
-                                Secondary author list.
-                            </description>
-                        </parameter>
-                        <parameter name="evaluationMode" type="string" default="automatic">
-                            <description>
-                                The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
-                            </description>
-                        </parameter>
-                        <parameter name="fixedDepth" type="double">
-                            <description>
-                                Fix depth.
-                            </description>
-                        </parameter>
-                        <parameter name="distanceCutOff" type="double">
-                            <description>
-                                Distance cut off.
-                            </description>
-                        </parameter>
-			<parameter name="ignoreInitialLocation" type="boolean" default="false">
-                            <description>
-                                Ignore initial location.
-                            </description>
-			</parameter>
-                    </group>
-		</configuration>
+            <group name="mode">
+				<parameter name="test" type="boolean" default="false">
+	                <description>
+	                    Test mode, do not write object in database.
+	                </description>
+				</parameter>
+            </group>
+            <group name="connection">
+                <parameter name="groupRemove" type="string">
+                    <description>
+                        Defines the group where the module sends the messages to remove origins.
+                    </description>
+                </parameter>
+            </group>
+            <group name="locator">
+                <parameter name="type" type="string" default="LOCSAT">
+                    <description>
+                        Defines the locator to be used, such as NonLinLoc, Hypo71 or LOCSAT
+                    </description>
+                </parameter>
+                <parameter name="profile" type="string" default="iasp91">
+                    <description>
+                        The locator profile to use
+                    </description>
+                </parameter>
+                <parameter name="fixedDepth" type="double">
+                    <description>
+                        Fix depth.
+                    </description>
+                </parameter>
+                <parameter name="distanceCutOff" type="double">
+                    <description>
+                        Distance cut off.
+                    </description>
+                </parameter>
+                <parameter name="ignoreInitialLocation" type="boolean" default="false">
+                    <description>
+                        Ignore initial location.
+                    </description>
+                </parameter>
+            </group>
+            <group name="input">
+                <parameter name="primaryOriginAgencyIDs" type="list:string">
+                    <description>
+                        Primary agencyID list.
+                    </description>
+                </parameter>
+                <parameter name="secondaryOriginAgencyIDs" type="list:string">
+                    <description>
+                        Secondary agencyID list.
+                    </description>
+                </parameter>
+                <parameter name="evaluationMode" type="string">
+                    <description>
+                        The evaluation mode of the input origins. Can be either &quot;manual&quot;, &quot;automatic&quot; or blank.
+                    </description>
+                </parameter>
+            </group>
+            <group name="output">
+                <parameter name="author" type="string">
+                    <description>
+                        Defines merged origin author.
+                    </description>
+                </parameter>
+                <parameter name="agencyID" type="string">
+                    <description>
+                        Defines merged origin agencyID.
+                    </description>
+                </parameter>
+                <parameter name="evaluationMode" type="string" default="automatic">
+                    <description>
+                        The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
+                    </description>
+                </parameter>
+            </group>
+        </configuration>
 		<command-line>
 			<group name="Generic">
 				<optionReference>generic#help</optionReference>

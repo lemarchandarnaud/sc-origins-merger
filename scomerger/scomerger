@@ -17,6 +17,12 @@ class OriginMerger(Client.Application):
     Merge 2 origins inside events by author names.
     """
 
+    # Convert an evaluation mode string to the correct enum
+    EVALUATION_MODES = {
+        'automatic': DataModel.AUTOMATIC,
+        'manual': DataModel.MANUAL,
+    }
+
     def __init__(self, argc, argv):
         Client.Application.__init__(self, argc, argv)
         self.setMessagingEnabled(True)
@@ -39,9 +45,10 @@ class OriginMerger(Client.Application):
         self.begin_time = None
         self.event_id = None
         self.author = os.path.basename(__file__)
-        self.primary_origin_authors = []
-        self.secondary_origin_authors = []
-        self.evaluation_mode = 'automatic'
+        self.primary_origin_agencyIDs = []
+        self.secondary_origin_agencyIDs = []
+        self.output_evaluation_mode = 'automatic'
+        self.input_evaluation_mode = None
         self.fixed_depth = None
         self.distance_cut_off = None
         self.ignore_initial_location = False
@@ -53,8 +60,17 @@ class OriginMerger(Client.Application):
 
             self.db_query = DataModel.DatabaseQuery(self.database())
 
-            self.locator = Seismology.LocatorInterface.Create('LOCSAT')
+            # Configure locator to be used
+            self.locator = \
+                Seismology.LocatorInterface.Create(self.locator_type)
+            if not self.locator:
+                Logging.error('Locator %s not available -> abort'
+                              % self.locator_type)
+                return False
+
+            # Use this profile with the locator
             self.locator.init(self.configuration())
+            self.locator.setProfile(self.locator_profile)
 
             return True
         except:
@@ -80,36 +96,58 @@ class OriginMerger(Client.Application):
             except Config.Exception:
                 pass
             try:
-                self.author = self.configGetString('input.author')
+                self.primary_origin_agencyIDs = \
+                    list(self.configGetStrings('input.primaryOriginAgencyIDs'))
             except Config.Exception:
                 pass
             try:
-                self.primary_origin_authors = \
-                    list(self.configGetStrings('input.primaryOriginAuthors'))
+                self.secondary_origin_agencyIDs = list(
+                    self.configGetStrings('input.secondaryOriginAgencyIDs')
+                )
             except Config.Exception:
                 pass
             try:
-                self.secondary_origin_authors = \
-                    list(self.configGetStrings('input.secondaryOriginAuthors'))
+
+                mode = self.configGetString('input.evaluationMode')
+                self.input_evaluation_mode = \
+                    OriginMerger.EVALUATION_MODES[mode.lower()]
+            except (Config.Exception, KeyError):
+                pass
+            try:
+                self.author = self.configGetString('output.author')
             except Config.Exception:
                 pass
             try:
-                self.evaluation_mode = \
-                    self.configGetString('input.evaluationMode')
+                self.agencyID = self.configGetString('output.agencyID')
             except Config.Exception:
                 pass
             try:
-                self.fixed_depth = self.configGetDouble('input.fixedDepth')
+                self.output_evaluation_mode = \
+                    self.configGetString('output.evaluationMode')
+            except Config.Exception:
+                pass
+            try:
+                self.fixed_depth = self.configGetDouble('locator.fixedDepth')
             except Config.Exception:
                 pass
             try:
                 self.distance_cut_off = \
-                    self.configGetDouble('input.distanceCutOff')
+                    self.configGetDouble('locator.distanceCutOff')
             except Config.Exception:
                 pass
             try:
                 self.ignore_initial_location = \
-                    self.configGetBool('input.ignoreInitialLocation')
+                    self.configGetBool('locator.ignoreInitialLocation')
+            except Config.Exception:
+                pass
+            try:
+                self.locator_type = \
+                    self.configGetString('locator.type')
+            except Config.Exception:
+                pass
+            try:
+                self.locator_profile = \
+                    self.configGetString('locator.profile')
             except Config.Exception:
                 pass
 
@@ -158,17 +196,25 @@ class OriginMerger(Client.Application):
             'Input',
             'evaluation-mode',
             'origin evaluation mode (manual or automatic)')
-        self.commandline().addGroup('LocSAT')
+        self.commandline().addGroup('locator')
         self.commandline().addStringOption(
-            'LocSAT',
+            'locator',
+            'type',
+            'locator to use')
+        self.commandline().addStringOption(
+            'locator',
+            'profile',
+            'locator profile')
+        self.commandline().addStringOption(
+            'locator',
             'fixed-depth',
             'fix depth')
         self.commandline().addStringOption(
-            'LocSAT',
+            'locator',
             'distance-cut-off',
             'distance cut off')
         self.commandline().addOption(
-            'LocSAT',
+            'locator',
             'ignore-initial-location',
             'ignore initial location')
 
@@ -193,9 +239,15 @@ class OriginMerger(Client.Application):
             if self.commandline().hasOption('author'):
                 self.author = self.commandline().optionString('author')
             if self.commandline().hasOption('evaluation-mode'):
-                self.evaluation_mode = \
+                self.output_evaluation_mode = \
                     self.commandline().optionString('evaluation-mode')
 
+            if self.commandline().hasOption('locator-type'):
+                self.locator_type = \
+                    self.commandline().optionString('locator-type')
+            if self.commandline().hasOption('locator-profile'):
+                self.locator_profile = \
+                    self.commandline().optionString('locator-profile')
             if self.commandline().hasOption('fixed-depth'):
                 fixed_depth = self.commandline().optionString('fixed-depth')
                 self.fixed_depth = float(fixed_depth)
@@ -227,9 +279,23 @@ class OriginMerger(Client.Application):
         preferred_origin = DataModel.Origin.Cast(preferred_origin)
 
         if preferred_origin and preferred_origin.creationInfo():
-            agency = preferred_origin.creationInfo().agencyID()
-            if agency in self.primary_origin_authors:
-                self.primary_origin = preferred_origin
+            agency_id = preferred_origin.creationInfo().agencyID()
+            evaluation_mode = preferred_origin.evaluationMode()
+            if agency_id in self.primary_origin_agencyIDs:
+                if (self.input_evaluation_mode is None or
+                        evaluation_mode == self.input_evaluation_mode):
+                    self.primary_origin = preferred_origin
+                    Logging.debug('Origin %s qualified for primary origin '
+                                  'with agencyID %s' % (origin_id, agency_id))
+                elif evaluation_mode == DataModel.AUTOMATIC:
+                    Logging.info('Preferred origin not eligible, '
+                                 'evaluationMode automatic not allowed')
+                elif evaluation_mode == DataModel.MANUAL:
+                    Logging.info('Preferred origin not eligible, '
+                                 'evaluationMode manual not allowed')
+            else:
+                Logging.info('Preferred origin not eligible, agency %s not in '
+                             'PrimaryOriginAgencyIDs' % agency_id)
 
     def _retrieve_secondary_and_merged_origins(self, event):
         """
@@ -252,19 +318,54 @@ class OriginMerger(Client.Application):
             origin_id = origin.publicID()
             agency_id = origin.creationInfo().agencyID()
             author = origin.creationInfo().author()
+            creation_time = origin.creationInfo().creationTime()
+            evaluation_mode = origin.evaluationMode()
 
-            if secondary_origin is None and \
-                    agency_id in self.secondary_origin_authors:
-                secondary_origin = \
-                    self.db_query.loadObject(type_info, origin_id)
-                secondary_origin = DataModel.Origin.Cast(secondary_origin)
+            if origin_id != self.primary_origin.publicID():
+                if (self.input_evaluation_mode is None or
+                        evaluation_mode == self.input_evaluation_mode):
+                    if agency_id in self.secondary_origin_agencyIDs:
+                        if secondary_origin is None:
+                            secondary_origin = \
+                                self.db_query.loadObject(type_info, origin_id)
+                            secondary_origin = \
+                                DataModel.Origin.Cast(secondary_origin)
+                            Logging.debug('Origin %s qualified for secondary '
+                                          'origin with agencyID %s'
+                                          % (origin_id, agency_id))
+                        elif (secondary_origin.creationInfo().creationTime().get()
+                                < creation_time.get()):
+                            Logging.debug('Origin %s qualified for secondary '
+                                          'origin with agencyID %s'
+                                          % (origin_id, agency_id))
+                            Logging.debug(' replace %s'
+                                          % secondary_origin.publicID())
+                            secondary_origin = \
+                                self.db_query.loadObject(type_info, origin_id)
+                            secondary_origin = \
+                                DataModel.Origin.Cast(secondary_origin)
+                        else:
+                            Logging.debug('Origin %s earlier than already '
+                                          'qualified origin %s'
+                                          % (origin_id,
+                                             secondary_origin.publicID()))
+                    else:
+                        Logging.debug('Origin %s failed to qualify: wrong '
+                                      'agencyID %s' % (origin_id, agency_id))
+                elif evaluation_mode == DataModel.AUTOMATIC:
+                    Logging.info('Origin not eligible, evaluationMode '
+                                 'automatic not allowed')
+                elif evaluation_mode == DataModel.MANUAL:
+                    Logging.info('Origin not eligible, evaluationMode '
+                                 'manual not allowed')
+            else:
+                    Logging.debug('Origin %s already qualified for primary '
+                                  'origin' % origin_id)
 
-            if origin_merged is None and author == self.author:
+            if (origin_merged is None and author == self.author and
+                    agency_id == self.agencyID):
                 origin_merged = self.db_query.loadObject(type_info, origin_id)
                 origin_merged = DataModel.Origin.Cast(origin_merged)
-
-            if secondary_origin and origin_merged:
-                break
 
         self.secondary_origin = secondary_origin
         self.origin_merged = origin_merged
@@ -347,6 +448,11 @@ class OriginMerger(Client.Application):
         Get the primary and secondary origins and return a new origin with the
         Arrivals, Magnitude and StationMagnitude of both origins.
         """
+        self._retrieve_primary_origin(event)
+        if not self.primary_origin:
+            Logging.warning('No primary origin found')
+            return None
+
         self._retrieve_secondary_and_merged_origins(event)
         if self.origin_merged:
             if self.remove_merged_origin:
@@ -370,10 +476,7 @@ class OriginMerger(Client.Application):
             return None
 
         if not self.secondary_origin:
-            return None
-
-        self._retrieve_primary_origin(event)
-        if not self.primary_origin:
+            Logging.warning('No secondary origin found')
             return None
 
         new_origin = DataModel.Origin(self.primary_origin)
@@ -422,7 +525,6 @@ class OriginMerger(Client.Application):
             self.db_query.load(inv.network(i))
 
         # Prepare the locator
-        self.locator.setProfile(origin.earthModelID())
         fixed_depth = self.fixed_depth
         depth_uncertainty = None
         try:
@@ -450,13 +552,12 @@ class OriginMerger(Client.Application):
             return None
 
         # There are some modifications to do on the generated origin
-        agency = origin.creationInfo().agencyID()
-        new_origin.creationInfo().setAgencyID(agency)
+        new_origin.creationInfo().setAgencyID(self.agencyID)
         new_origin.creationInfo().setAuthor(self.author)
 
-        if self.evaluation_mode.lower() == 'automatic':
+        if self.output_evaluation_mode.lower() == 'automatic':
             new_origin.setEvaluationMode(DataModel.AUTOMATIC)
-        elif self.evaluation_mode.lower() == 'manual':
+        elif self.output_evaluation_mode.lower() == 'manual':
             new_origin.setEvaluationMode(DataModel.MANUAL)
 
         new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
