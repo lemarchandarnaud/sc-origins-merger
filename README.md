@@ -47,6 +47,7 @@ Installation
 
     ```bash
     cp descriptions/scomerger.xml /path/to/seiscomp3/etc/descriptions/
+cp defaults/scomerger.cfg /path/to/seiscomp3/etc/defaults/
 cp init/scomerger.py /path/to/seiscomp3/etc/init/
 cp scomerger /path/to/seiscomp3/bin/
     ```
