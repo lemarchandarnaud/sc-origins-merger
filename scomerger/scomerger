@@ -26,9 +26,15 @@ class OriginMerger(Client.Application):
     """
 
     # Convert an evaluation mode string to the correct enum
-    EVALUATION_MODES = {
-        'automatic': DataModel.AUTOMATIC,
+    ENUM_EVALUATION_MODES = {
         'manual': DataModel.MANUAL,
+        'automatic': DataModel.AUTOMATIC,
+    }
+
+    # Convert an evaluation mode enum to the correct string
+    STR_EVALUATION_MODES = {
+        DataModel.MANUAL: 'manual',
+        DataModel.AUTOMATIC: 'automatic',
     }
 
     def __init__(self, argc, argv):
@@ -55,7 +61,7 @@ class OriginMerger(Client.Application):
         self.author = os.path.basename(__file__)
         self.primary_origin_agencyIDs = []
         self.secondary_origin_agencyIDs = []
-        self.output_evaluation_mode = 'automatic'
+        self.output_evaluation_mode = DataModel.AUTOMATIC
         self.input_evaluation_mode = None
         self.fixed_depth = None
         self.distance_cut_off = None
@@ -118,7 +124,7 @@ class OriginMerger(Client.Application):
 
                 mode = self.configGetString('input.evaluationMode')
                 self.input_evaluation_mode = \
-                    OriginMerger.EVALUATION_MODES[mode.lower()]
+                    OriginMerger.ENUM_EVALUATION_MODES[mode.lower()]
             except (Config.Exception, KeyError):
                 pass
             try:
@@ -130,9 +136,10 @@ class OriginMerger(Client.Application):
             except Config.Exception:
                 pass
             try:
+                str_mode = self.configGetString('output.evaluationMode')
                 self.output_evaluation_mode = \
-                    self.configGetString('output.evaluationMode')
-            except Config.Exception:
+                    OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
+            except (Config.Exception, KeyError):
                 pass
             try:
                 self.fixed_depth = self.configGetDouble('locator.fixedDepth')
@@ -247,8 +254,13 @@ class OriginMerger(Client.Application):
             if self.commandline().hasOption('author'):
                 self.author = self.commandline().optionString('author')
             if self.commandline().hasOption('evaluation-mode'):
-                self.output_evaluation_mode = \
-                    self.commandline().optionString('evaluation-mode')
+                try:
+                    str_mode = \
+                        self.commandline().optionString('evaluation-mode')
+                    self.output_evaluation_mode = \
+                        OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
+                except KeyError:
+                    Logging.error('Wrong evaluation-mode parameter')
 
             if self.commandline().hasOption('locator-type'):
                 self.locator_type = \
@@ -302,15 +314,14 @@ class OriginMerger(Client.Application):
             self.primary_origin = preferred_origin
             Logging.debug('Origin %s qualified for primary origin with '
                           'agencyID %s' % (origin_id, agency_id))
-        elif evaluation_mode == DataModel.AUTOMATIC:
-            Logging.debug('Preferred origin not eligible, evaluationMode '
-                          'automatic not allowed')
-        elif evaluation_mode == DataModel.MANUAL:
-            Logging.debug('Preferred origin not eligible, evaluationMode '
-                          'manual not allowed')
         else:
-            Logging.debug('Origin %s not eligible, evaluationMode is unknown'
-                          % origin_id)
+            try:
+                str_mode = OriginMerger.STR_EVALUATION_MODES[evaluation_mode]
+                Logging.debug('Preferred origin not eligible, evaluationMode '
+                              '%s not allowed' % str_mode)
+            except KeyError:
+                Logging.debug('Preferred origin not eligible, evaluationMode '
+                              'is unknown')
 
     def _retrieve_secondary_and_merged_origins(self, event):
         """
@@ -353,13 +364,12 @@ class OriginMerger(Client.Application):
 
             if (self.input_evaluation_mode is not None and
                     self.input_evaluation_mode != evaluation_mode):
-                if evaluation_mode == DataModel.AUTOMATIC:
+                try:
+                    str_mode = \
+                        OriginMerger.STR_EVALUATION_MODES[evaluation_mode]
                     Logging.debug('Origin %s not eligible, evaluationMode '
-                                  'automatic not allowed' % origin_id)
-                elif evaluation_mode == DataModel.MANUAL:
-                    Logging.debug('Origin %s not eligible, evaluationMode '
-                                  'manual not allowed' % origin_id)
-                else:
+                                  '%s not allowed' % (origin_id, str_mode))
+                except KeyError:
                     Logging.debug('Origin %s not eligible, evaluationMode is '
                                   'unknown' % origin_id)
                 continue
@@ -568,11 +578,7 @@ class OriginMerger(Client.Application):
         new_origin.creationInfo().setAgencyID(self.agencyID)
         new_origin.creationInfo().setAuthor(self.author)
 
-        if self.output_evaluation_mode.lower() == 'automatic':
-            new_origin.setEvaluationMode(DataModel.AUTOMATIC)
-        elif self.output_evaluation_mode.lower() == 'manual':
-            new_origin.setEvaluationMode(DataModel.MANUAL)
-
+        new_origin.setEvaluationMode(self.output_evaluation_mode)
         new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
 
         # Add arrivals from station not found in the inventory
