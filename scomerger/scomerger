@@ -22,7 +22,7 @@ def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
 
 class OriginMerger(Client.Application):
     """
-    Merge 2 origins inside events by author names.
+    Merge 2 origins inside events by agency names.
     """
 
     # Convert an evaluation mode string to the correct enum
@@ -286,24 +286,31 @@ class OriginMerger(Client.Application):
         preferred_origin = self.db_query.loadObject(type_info, origin_id)
         preferred_origin = DataModel.Origin.Cast(preferred_origin)
 
-        if preferred_origin and preferred_origin.creationInfo():
-            agency_id = preferred_origin.creationInfo().agencyID()
-            evaluation_mode = preferred_origin.evaluationMode()
-            if agency_id in self.primary_origin_agencyIDs:
-                if (self.input_evaluation_mode is None or
-                        evaluation_mode == self.input_evaluation_mode):
-                    self.primary_origin = preferred_origin
-                    Logging.debug('Origin %s qualified for primary origin '
-                                  'with agencyID %s' % (origin_id, agency_id))
-                elif evaluation_mode == DataModel.AUTOMATIC:
-                    Logging.info('Preferred origin not eligible, '
-                                 'evaluationMode automatic not allowed')
-                elif evaluation_mode == DataModel.MANUAL:
-                    Logging.info('Preferred origin not eligible, '
-                                 'evaluationMode manual not allowed')
-            else:
-                Logging.info('Preferred origin not eligible, agency %s not in '
-                             'PrimaryOriginAgencyIDs' % agency_id)
+        if not preferred_origin or not preferred_origin.creationInfo():
+            Logging.warning('No preferred origin found')
+            return
+
+        agency_id = preferred_origin.creationInfo().agencyID()
+        if agency_id not in self.primary_origin_agencyIDs:
+            Logging.debug('Preferred origin not eligible, agency %s not in '
+                          'PrimaryOriginAgencyIDs' % agency_id)
+            return
+
+        evaluation_mode = preferred_origin.evaluationMode()
+        if (self.input_evaluation_mode is None or
+                evaluation_mode == self.input_evaluation_mode):
+            self.primary_origin = preferred_origin
+            Logging.debug('Origin %s qualified for primary origin with '
+                          'agencyID %s' % (origin_id, agency_id))
+        elif evaluation_mode == DataModel.AUTOMATIC:
+            Logging.debug('Preferred origin not eligible, evaluationMode '
+                          'automatic not allowed')
+        elif evaluation_mode == DataModel.MANUAL:
+            Logging.debug('Preferred origin not eligible, evaluationMode '
+                          'manual not allowed')
+        else:
+            Logging.debug('Origin %s not eligible, evaluationMode is unknown'
+                          % origin_id)
 
     def _retrieve_secondary_and_merged_origins(self, event):
         """
@@ -329,51 +336,45 @@ class OriginMerger(Client.Application):
             creation_time = origin.creationInfo().creationTime()
             evaluation_mode = origin.evaluationMode()
 
-            if origin_id != self.primary_origin.publicID():
-                if (self.input_evaluation_mode is None or
-                        evaluation_mode == self.input_evaluation_mode):
-                    if agency_id in self.secondary_origin_agencyIDs:
-                        if secondary_origin is None:
-                            secondary_origin = \
-                                self.db_query.loadObject(type_info, origin_id)
-                            secondary_origin = \
-                                DataModel.Origin.Cast(secondary_origin)
-                            Logging.debug('Origin %s qualified for secondary '
-                                          'origin with agencyID %s'
-                                          % (origin_id, agency_id))
-                        elif (secondary_origin.creationInfo().creationTime().get()
-                                < creation_time.get()):
-                            Logging.debug('Origin %s qualified for secondary '
-                                          'origin with agencyID %s'
-                                          % (origin_id, agency_id))
-                            Logging.debug(' replace %s'
-                                          % secondary_origin.publicID())
-                            secondary_origin = \
-                                self.db_query.loadObject(type_info, origin_id)
-                            secondary_origin = \
-                                DataModel.Origin.Cast(secondary_origin)
-                        else:
-                            Logging.debug('Origin %s earlier than already '
-                                          'qualified origin %s'
-                                          % (origin_id,
-                                             secondary_origin.publicID()))
-                    else:
-                        Logging.debug('Origin %s failed to qualify: wrong '
-                                      'agencyID %s' % (origin_id, agency_id))
-                elif evaluation_mode == DataModel.AUTOMATIC:
-                    Logging.info('Origin not eligible, evaluationMode '
-                                 'automatic not allowed')
-                elif evaluation_mode == DataModel.MANUAL:
-                    Logging.info('Origin not eligible, evaluationMode '
-                                 'manual not allowed')
-            else:
-                    Logging.debug('Origin %s already qualified for primary '
-                                  'origin' % origin_id)
-
             if (origin_merged is None and author == self.author and
                     agency_id == self.agencyID):
                 origin_merged = self.db_query.loadObject(type_info, origin_id)
                 origin_merged = DataModel.Origin.Cast(origin_merged)
+
+            if origin_id == self.primary_origin.publicID():
+                Logging.debug('Origin %s not eligible, already qualified for '
+                              'primary origin' % origin_id)
+                continue
+
+            if agency_id not in self.secondary_origin_agencyIDs:
+                Logging.debug('Origin %s not eligible, agencyID %s not allowed'
+                              % (origin_id, agency_id))
+                continue
+
+            if (self.input_evaluation_mode is not None and
+                    self.input_evaluation_mode != evaluation_mode):
+                if evaluation_mode == DataModel.AUTOMATIC:
+                    Logging.debug('Origin %s not eligible, evaluationMode '
+                                  'automatic not allowed' % origin_id)
+                elif evaluation_mode == DataModel.MANUAL:
+                    Logging.debug('Origin %s not eligible, evaluationMode '
+                                  'manual not allowed' % origin_id)
+                else:
+                    Logging.debug('Origin %s not eligible, evaluationMode is '
+                                  'unknown' % origin_id)
+                continue
+
+            if (secondary_origin is not None and creation_time.get() <
+                    secondary_origin.creationInfo().creationTime().get()):
+                Logging.debug('Origin %s not eligible, earlier than already '
+                              'qualified origin %s'
+                              % (origin_id, secondary_origin.publicID()))
+                continue
+
+            secondary_origin = self.db_query.loadObject(type_info, origin_id)
+            secondary_origin = DataModel.Origin.Cast(secondary_origin)
+            Logging.debug('Origin %s qualified for secondary origin with '
+                          'agencyID %s' % (origin_id, agency_id))
 
         self.secondary_origin = secondary_origin
         self.origin_merged = origin_merged
@@ -458,25 +459,29 @@ class OriginMerger(Client.Application):
         """
         self._retrieve_primary_origin(event)
         if not self.primary_origin:
-            Logging.warning('No primary origin found')
+            Logging.info('No primary origin found')
             return None
 
         self._retrieve_secondary_and_merged_origins(event)
         if self.origin_merged:
             if self.remove_merged_origin:
-                Logging.warning('Remove merged origin')
+                Logging.info('Remove merged origin %s'
+                             % self.origin_merged.publicID())
                 self._remove(event, self.origin_merged)
             elif not self.secondary_origin:
-                Logging.warning('No secondary origin found, remove merged '
-                                'origin')
+                Logging.info('No secondary origin found, remove merged '
+                             'origin %s' % self.origin_merged.publicID())
                 self._remove(event, self.origin_merged)
             elif (self.origin_merged.creationInfo().creationTime() <
                     self.secondary_origin.creationInfo().creationTime()):
-                Logging.warning('Secondary origin is newer than merged '
-                                'origin, remove merged origin')
+                Logging.info('Secondary origin is newer than merged origin, '
+                             'remove merged origin %s'
+                             % self.origin_merged.publicID())
                 self._remove(event, self.origin_merged)
             else:
-                Logging.warning('Origins already merged')
+                Logging.info('Origins %s and %s already merged'
+                             % (self.primary_origin.publicID(),
+                                self.origin_merged.publicID()))
 
             return None
 
@@ -484,7 +489,7 @@ class OriginMerger(Client.Application):
             return None
 
         if not self.secondary_origin:
-            Logging.warning('No secondary origin found')
+            Logging.info('No secondary origin found')
             return None
 
         new_origin = DataModel.Origin(self.primary_origin)
@@ -496,7 +501,7 @@ class OriginMerger(Client.Application):
 
         arrival_count = new_origin.arrivalCount() + len(self.unknown_arrivals)
         if arrival_count == self.primary_origin.arrivalCount():
-            # Nothing to merge, no new arrivals
+            Logging.info('No new arrivals')
             return None
 
         self._copy_station_magnitudes(self.primary_origin, new_origin)
@@ -505,9 +510,9 @@ class OriginMerger(Client.Application):
         if self.primary_origin.magnitudeCount() == 0:
             self._copy_magnitudes(self.secondary_origin, new_origin)
 
-        Logging.debug('Origins %s and %s merged' %
-                      (self.primary_origin.publicID(),
-                       self.secondary_origin.publicID()))
+        Logging.info('Origins %s and %s merged' %
+                     (self.primary_origin.publicID(),
+                      self.secondary_origin.publicID()))
 
         return new_origin
 
@@ -660,7 +665,7 @@ class OriginMerger(Client.Application):
         """
         Merge origins, relocate and write to the database.
         """
-        Logging.debug('Receiving event %s' % event.publicID())
+        Logging.info('Processing event %s' % event.publicID())
 
         origin = self._merge_origin(event)
 
@@ -682,18 +687,18 @@ class OriginMerger(Client.Application):
                     origin_relocated = self._relocate(origin)
 
             if origin_relocated:
-                Logging.debug('Origin %s relocated' %
-                              origin_relocated.publicID())
+                Logging.info('Origin %s relocated' %
+                             origin_relocated.publicID())
                 self._send(event, origin_relocated)
         else:
-            Logging.debug('Nothing to merge')
+            Logging.info('Nothing to merge')
 
     def handleMessage(self, message):
         self.events = []
         # Call addObject, removeObject and updateObject
         Client.Application.handleMessage(self, message)
 
-        Logging.debug("processed %s events" % len(self.events))
+        Logging.debug("Processed %s events" % len(self.events))
         for event in self.events:
             self._process(event)
 
