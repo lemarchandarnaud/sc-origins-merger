@@ -214,11 +214,11 @@ class OriginMerger(Client.Application):
         self.commandline().addGroup('locator')
         self.commandline().addStringOption(
             'locator',
-            'type',
+            'locator-type',
             'locator to use')
         self.commandline().addStringOption(
             'locator',
-            'profile',
+            'locator-profile',
             'locator profile')
         self.commandline().addStringOption(
             'locator',
