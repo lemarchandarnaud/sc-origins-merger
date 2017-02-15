@@ -47,7 +47,7 @@ class OriginMerger(Client.Application):
         self.events = []
         self.primary_origin = None
         self.secondary_origin = None
-        self.origin_merged = None
+        self.merged_origin = None
         # Store arrivals from station not in the inventory
         self.unknown_arrivals = []
 
@@ -332,7 +332,7 @@ class OriginMerger(Client.Application):
         # the events as otherwise we get nested queries, which are not
         # allowed.
         secondary_origin = None
-        origin_merged = None
+        merged_origin = None
 
         for origin in origins:
             origin = DataModel.Origin.Cast(origin)
@@ -347,10 +347,10 @@ class OriginMerger(Client.Application):
             creation_time = origin.creationInfo().creationTime()
             evaluation_mode = origin.evaluationMode()
 
-            if (origin_merged is None and author == self.author and
+            if (merged_origin is None and author == self.author and
                     agency_id == self.agencyID):
-                origin_merged = self.db_query.loadObject(type_info, origin_id)
-                origin_merged = DataModel.Origin.Cast(origin_merged)
+                merged_origin = self.db_query.loadObject(type_info, origin_id)
+                merged_origin = DataModel.Origin.Cast(merged_origin)
 
             if origin_id == self.primary_origin.publicID():
                 Logging.debug('Origin %s not eligible, already qualified for '
@@ -387,7 +387,7 @@ class OriginMerger(Client.Application):
                           'agencyID %s' % (origin_id, agency_id))
 
         self.secondary_origin = secondary_origin
-        self.origin_merged = origin_merged
+        self.merged_origin = merged_origin
 
     def _copy_arrivals(self, origin_source, origin_dest):
         """
@@ -473,25 +473,27 @@ class OriginMerger(Client.Application):
             return None
 
         self._retrieve_secondary_and_merged_origins(event)
-        if self.origin_merged:
+
+        # Process merged origin
+        if self.merged_origin:
             if self.remove_merged_origin:
                 Logging.info('Remove merged origin %s'
-                             % self.origin_merged.publicID())
-                self._remove(event, self.origin_merged)
+                             % self.merged_origin.publicID())
+                self._remove(event, self.merged_origin)
             elif not self.secondary_origin:
                 Logging.info('No secondary origin found, remove merged '
-                             'origin %s' % self.origin_merged.publicID())
-                self._remove(event, self.origin_merged)
-            elif (self.origin_merged.creationInfo().creationTime() <
+                             'origin %s' % self.merged_origin.publicID())
+                self._remove(event, self.merged_origin)
+            elif (self.merged_origin.creationInfo().creationTime() <
                     self.secondary_origin.creationInfo().creationTime()):
                 Logging.info('Secondary origin is newer than merged origin, '
                              'remove merged origin %s'
-                             % self.origin_merged.publicID())
-                self._remove(event, self.origin_merged)
+                             % self.merged_origin.publicID())
+                self._remove(event, self.merged_origin)
             else:
                 Logging.info('Origins %s and %s already merged'
                              % (self.primary_origin.publicID(),
-                                self.origin_merged.publicID()))
+                                self.merged_origin.publicID()))
 
             return None
 
@@ -561,6 +563,7 @@ class OriginMerger(Client.Application):
             self.locator.setFixedDepth(origin.depth().value())
         else:
             self.locator.releaseDepth()
+
         if self.distance_cut_off is not None:
             self.locator.setDistanceCutOff(self.distance_cut_off)
         self.locator.setIgnoreInitialLocation(self.ignore_initial_location)
