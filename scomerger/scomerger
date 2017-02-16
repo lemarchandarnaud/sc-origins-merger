@@ -441,7 +441,8 @@ class OriginMerger(Client.Application):
             else:
                 origin_dest.add(new_arrival)
 
-    def _copy_magnitudes(self, origin_source, origin_dest):
+    @staticmethod
+    def _copy_magnitudes(origin_source, origin_dest):
         """
         Copy the magnitudes from an origin to the other.
         """
@@ -451,7 +452,8 @@ class OriginMerger(Client.Application):
             DataModel.PublicObject.GenerateId(new_magnitude)
             origin_dest.add(new_magnitude)
 
-    def _copy_station_magnitudes(self, origin_source, origin_dest):
+    @staticmethod
+    def _copy_station_magnitudes(origin_source, origin_dest):
         """
         Copy the station magnitudes from an origin to the other.
         """
@@ -516,8 +518,8 @@ class OriginMerger(Client.Application):
             Logging.info('No new arrivals')
             return None
 
-        self._copy_station_magnitudes(self.primary_origin, new_origin)
-        self._copy_station_magnitudes(self.secondary_origin, new_origin)
+        OriginMerger._copy_station_magnitudes(self.primary_origin, new_origin)
+        OriginMerger._copy_station_magnitudes(self.secondary_origin, new_origin)
         self._copy_magnitudes(self.primary_origin, new_origin)
         if self.primary_origin.magnitudeCount() == 0:
             self._copy_magnitudes(self.secondary_origin, new_origin)
@@ -593,8 +595,8 @@ class OriginMerger(Client.Application):
             new_origin.add(arrival)
 
         # Normally, magnitudes should be recalculated after relocation.
-        self._copy_magnitudes(origin, new_origin)
-        self._copy_station_magnitudes(origin, new_origin)
+        OriginMerger._copy_magnitudes(origin, new_origin)
+        OriginMerger._copy_station_magnitudes(origin, new_origin)
 
         return new_origin
 
