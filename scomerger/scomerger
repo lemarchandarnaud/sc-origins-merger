@@ -548,18 +548,19 @@ class OriginMerger(Client.Application):
             self.db_query.load(inv.network(i))
 
         # Prepare the locator
-        fixed_depth = self.fixed_depth
         depth_uncertainty = None
         try:
             depth_uncertainty = origin.depth().uncertainty()
         except Core.ValueException:
             pass
-        if fixed_depth is not None:
+        if self.fixed_depth is not None:
             self.locator.useFixedDepth(True)
             self.locator.setFixedDepth(self.fixed_depth)
         elif depth_uncertainty is None or isclose(depth_uncertainty, 0.0):
             self.locator.useFixedDepth(True)
             self.locator.setFixedDepth(origin.depth().value())
+        else:
+            self.locator.releaseDepth()
         if self.distance_cut_off is not None:
             self.locator.setDistanceCutOff(self.distance_cut_off)
         self.locator.setIgnoreInitialLocation(self.ignore_initial_location)
