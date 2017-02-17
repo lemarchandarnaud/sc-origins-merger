@@ -20,6 +20,14 @@ def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
     return abs(a - b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
 
+class MergeException(Exception):
+    """Raised when the merge operation can't be performed"""
+
+
+class LocatorException(Exception):
+    """Raised when the relocation can't be performed"""
+
+
 class OriginMerger(Client.Application):
     """
     Merge 2 origins inside events by agency names.
@@ -66,6 +74,7 @@ class OriginMerger(Client.Application):
         self.fixed_depth = None
         self.distance_cut_off = None
         self.ignore_initial_location = False
+        self.use_origin_locator = False
 
     def init(self):
         try:
@@ -156,6 +165,16 @@ class OriginMerger(Client.Application):
             except Config.Exception:
                 pass
             try:
+                self.use_origin_locator = \
+                    self.configGetBool('locator.useOriginLocator')
+            except Config.Exception:
+                pass
+            try:
+                self.use_origin_profile = \
+                    self.configGetBool('locator.useOriginLocator')
+            except Config.Exception:
+                pass
+            try:
                 self.locator_type = \
                     self.configGetString('locator.type')
             except Config.Exception:
@@ -232,10 +251,14 @@ class OriginMerger(Client.Application):
             'locator',
             'ignore-initial-location',
             'ignore initial location')
+        self.commandline().addOption(
+            'locator',
+            'use-origin-locator',
+            'use the primary origin locator if possible')
 
     def validateParameters(self):
         """
-        Retrieve parameters passed at the command execution
+        Retrieve parameters passed at the command execution.
         """
         try:
             if Client.Application.validateParameters(self) is False:
@@ -276,6 +299,8 @@ class OriginMerger(Client.Application):
                 self.distance_cut_off = float(dcu)
             self.ignore_initial_location = \
                 self.commandline().hasOption('ignore-initial-location')
+            self.use_origin_locator = \
+                self.commandline().hasOption('use-origin-locator')
             return True
         except:
             info = traceback.format_exception(*sys.exc_info())
@@ -464,15 +489,15 @@ class OriginMerger(Client.Application):
             DataModel.PublicObject.GenerateId(new_station_magnitude)
             origin_dest.add(new_station_magnitude)
 
-    def _merge_origin(self, event):
+    def _merge(self, event):
         """
-        Get the primary and secondary origins and return a new origin with the
-        Arrivals, Magnitude and StationMagnitude of both origins.
+        Get the primary and secondary origins and return a new origin
+        with the Arrivals, Magnitude and StationMagnitude of both
+        origins.
         """
         self._retrieve_primary_origin(event)
         if not self.primary_origin:
-            Logging.info('No primary origin found')
-            return None
+            raise MergeException('No primary origin found')
 
         self._retrieve_secondary_and_merged_origins(event)
 
@@ -497,14 +522,13 @@ class OriginMerger(Client.Application):
                              % (self.primary_origin.publicID(),
                                 self.merged_origin.publicID()))
 
-            return None
+            raise MergeException()
 
         if self.remove_merged_origin:
-            return None
+            raise MergeException()
 
         if not self.secondary_origin:
-            Logging.info('No secondary origin found')
-            return None
+            raise MergeException('No secondary origin found')
 
         new_origin = DataModel.Origin(self.primary_origin)
 
@@ -515,8 +539,7 @@ class OriginMerger(Client.Application):
 
         arrival_count = new_origin.arrivalCount() + len(self.unknown_arrivals)
         if arrival_count == self.primary_origin.arrivalCount():
-            Logging.info('No new arrivals')
-            return None
+            raise MergeException('No new arrivals')
 
         OriginMerger._copy_station_magnitudes(self.primary_origin, new_origin)
         OriginMerger._copy_station_magnitudes(self.secondary_origin, new_origin)
@@ -530,13 +553,11 @@ class OriginMerger(Client.Application):
 
         return new_origin
 
-    def _relocate(self, origin):
+    def _load_picks(self, origin):
         """
-        Relocate the origin passed in parameter and return the new
-        origin.
+        Load all picks associated to an origin (useful for the
+        relocation).
         """
-        # Load picks for the relocation (even if they aren't passed in
-        # parameters)
         picks = []
         for i in xrange(origin.arrivalCount()):
             arrival = origin.arrival(i)
@@ -544,41 +565,111 @@ class OriginMerger(Client.Application):
             pick = self.db_query.loadObject(DataModel.Pick.TypeInfo(), pick_id)
             pick = DataModel.Pick.Cast(pick)
             picks.append(pick)
+        return picks
 
-        # Load inventory
+    def _load_inventory(self):
+        """
+        Load the inventory (useful for the relocation).
+        """
         inv = DataModel.Inventory()
         self.db_query.loadNetworks(inv)
         for i in xrange(inv.networkCount()):
             self.db_query.load(inv.network(i))
+        return inv
 
-        # Prepare the locator
-        depth_uncertainty = None
-        try:
-            depth_uncertainty = origin.depth().uncertainty()
-        except Core.ValueException:
-            pass
-        if self.fixed_depth is not None:
-            self.locator.useFixedDepth(True)
-            self.locator.setFixedDepth(self.fixed_depth)
-        elif depth_uncertainty is None or isclose(depth_uncertainty, 0.0):
-            self.locator.useFixedDepth(True)
-            self.locator.setFixedDepth(origin.depth().value())
+    def _get_locator(self, origin, use_origin_locator=False, depth=None):
+        """
+        Get the locator which will be used for the relocation.
+        """
+        # Set the locator
+        locator = self.locator
+        if use_origin_locator:
+            locator_type = origin.methodID()
+
+            if locator_type.upper() != 'LOCSAT':
+                locator =  \
+                    Seismology.LocatorInterface.Create(locator_type)
+                try:
+                    locator.init(self.configuration())
+                except AttributeError:
+                    Logging.error('Locator %s not available, use %s'
+                                  % (locator_type, self.locator.name()))
+                    locator = self.locator
+
+            locator.setProfile(origin.earthModelID())
         else:
-            self.locator.releaseDepth()
+            locator.setProfile(self.locator_profile)
 
+        # Set depth
+        depth = depth or origin.depth()
+        locator.releaseDepth()
+        try:
+            if self.fixed_depth is not None:
+                locator.setFixedDepth(self.fixed_depth)
+            elif isclose(depth.uncertainty(), 0):
+                locator.setFixedDepth(depth.value())
+        except (AttributeError, Core.ValueException, TypeError):
+            Logging.debug("Can't use depth")
+
+        # Set distance cut off
         if self.distance_cut_off is not None:
-            self.locator.setDistanceCutOff(self.distance_cut_off)
-        self.locator.setIgnoreInitialLocation(self.ignore_initial_location)
+            locator.setDistanceCutOff(self.distance_cut_off)
+
+        # Set ignore initial location
+        locator.setIgnoreInitialLocation(self.ignore_initial_location)
+
+        return locator
+
+    def _relocate(self, origin):
+        """
+        Relocate the origin passed in parameter and return the new
+        origin.
+        """
+        # Load picks and inventory for the relocation. The variables
+        # aren't used but they still are useful (even if they aren't
+        # passed in parameters).
+        picks = self._load_picks(origin)
+        inventory = self._load_inventory()
+
+        # Prepare a list of parameters to try different locator
+        # parameters. This is useful when the relocation fails.
+        parameters = []
+        # Try the locator of the primary origin with the primary origin
+        # depth
+        parameters.append((self.use_origin_locator, origin.depth()))
+        # Try the locator of the primary origin with the secondary
+        # origin depth
+        if self.fixed_depth is None:
+            parameters.append((self.use_origin_locator,
+                               self.secondary_origin.depth()))
+        # Try the default locator
+        if self.use_origin_locator:
+            locator = self._get_locator(origin, self.use_origin_locator)
+            if (locator is not self.locator or
+                    origin.earthModelID() != self.locator_profile):
+                parameters.append((False, origin.depth()))
 
         # Let's go! Time to relocate!
-        try:
-            new_origin = self.locator.relocate(origin)
-        except Core.GeneralException:
-            Logging.error('Error in relocating')
-            info = traceback.format_exception(*sys.exc_info())
-            for i in info:
-                sys.stderr.write(i)
-            return None
+        new_origin = None
+        for use_origin_locator, depth in parameters:
+            locator = self._get_locator(origin, use_origin_locator, depth)
+            Logging.info("Try to relocate with locator %s" % locator.name())
+            try:
+                new_origin = locator.relocate(origin)
+                break
+            except Core.GeneralException:
+                # Several specific exception exists
+                # (`Seismology.PickNotFoundException`,
+                # `Seismology.LocatorException`,
+                # `Seismology.StationNotFoundException`) but they
+                # aren't used!!!
+                Logging.error("Can't relocate")
+                info = traceback.format_exception(*sys.exc_info())
+                for i in info:
+                    sys.stderr.write(i)
+
+        if new_origin is None:
+            raise LocatorException()
 
         # There are some modifications to do on the generated origin
         new_origin.creationInfo().setAgencyID(self.agencyID)
@@ -679,32 +770,24 @@ class OriginMerger(Client.Application):
         """
         Logging.info('Processing event %s' % event.publicID())
 
-        origin = self._merge_origin(event)
-
-        if origin:
-            origin_relocated = self._relocate(origin)
-
-            if not origin_relocated and self.fixed_depth is None:
-                # Retry relocation with secondary origin fixed depth.
-                # This is not perfect since this second try doesn't
-                # depend on the exception catch. It retries too much.
-                depth_uncertainty = None
-                try:
-                    depth_uncertainty = \
-                        self.secondary_origin.depth().uncertainty()
-                except Core.ValueException:
-                    pass
-                if depth_uncertainty is None or \
-                        isclose(depth_uncertainty, 0.0):
-                    origin.setDepth(self.secondary_origin.depth())
-                    origin_relocated = self._relocate(origin)
-
-            if origin_relocated:
-                Logging.info('Origin %s relocated' %
-                             origin_relocated.publicID())
-                self._send(event, origin_relocated)
-        else:
+        try:
+            origin = self._merge(event)
+        except MergeException as e:
+            message = str(e)
+            if message:
+                Logging.info(message)
             Logging.info('Nothing to merge')
+            return
+
+        try:
+            origin_relocated = self._relocate(origin)
+        except LocatorException as e:
+            message = str(e)
+            if message:
+                Logging.info(message)
+        else:
+            Logging.info('Origin %s relocated' % origin_relocated.publicID())
+            self._send(event, origin_relocated)
 
     def handleMessage(self, message):
         self.events = []

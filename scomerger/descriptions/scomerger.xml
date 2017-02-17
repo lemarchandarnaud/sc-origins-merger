@@ -43,6 +43,15 @@
                         Ignore initial location.
                     </description>
                 </parameter>
+                <parameter name="useOriginLocator" type="boolean" default="false">
+                    <description>
+                        Use the locator of the primary origin. The locator type
+						and profile are retrieve from the methodID and
+						earthModelID of the origin. If the locator can't be
+						found, the configured locator type/profile will be
+						used.
+                    </description>
+                </parameter>
             </group>
             <group name="input">
                 <parameter name="primaryOriginAgencyIDs" type="list:string">
