@@ -557,7 +557,7 @@ class OriginMerger(Client.Application):
         if fixed_depth is not None:
             self.locator.useFixedDepth(True)
             self.locator.setFixedDepth(self.fixed_depth)
-        elif depth_uncertainty is None or depth_uncertainty == 0.0:
+        elif depth_uncertainty is None or isclose(depth_uncertainty, 0.0):
             self.locator.useFixedDepth(True)
             self.locator.setFixedDepth(origin.depth().value())
         if self.distance_cut_off is not None:
@@ -688,7 +688,8 @@ class OriginMerger(Client.Application):
                         self.secondary_origin.depth().uncertainty()
                 except Core.ValueException:
                     pass
-                if depth_uncertainty is None or depth_uncertainty == 0.0:
+                if depth_uncertainty is None or \
+                        isclose(depth_uncertainty, 0.0):
                     origin.setDepth(self.secondary_origin.depth())
                     origin_relocated = self._relocate(origin)
 
