@@ -318,10 +318,8 @@ class OriginMerger(Client.Application):
         """
         self.primary_origin = None
 
-        type_info = DataModel.Origin.TypeInfo()
         origin_id = event.preferredOriginID()
-        preferred_origin = self.db_query.loadObject(type_info, origin_id)
-        preferred_origin = DataModel.Origin.Cast(preferred_origin)
+        preferred_origin = DataModel.Origin.Find(origin_id)
 
         if not preferred_origin or not preferred_origin.creationInfo():
             Logging.warning('No preferred origin found')
@@ -348,14 +346,10 @@ class OriginMerger(Client.Application):
                 Logging.debug('Preferred origin not eligible, evaluationMode '
                               'is unknown')
 
-    def _retrieve_secondary_and_merged_origins(self, event):
+    def _retrieve_secondary_and_merged_origins(self, origins):
         """
         Retrieve the secondary origin and the merged origins.
         """
-        origins = [ori for ori in self.db_query.getOrigins(event.publicID())]
-        # This DB query must be finished before we start iterating over
-        # the events as otherwise we get nested queries, which are not
-        # allowed.
         secondary_origin = None
         merged_origin = None
 
@@ -365,7 +359,6 @@ class OriginMerger(Client.Application):
             if not origin:
                 continue
 
-            type_info = DataModel.Origin.TypeInfo()
             origin_id = origin.publicID()
             agency_id = origin.creationInfo().agencyID()
             author = origin.creationInfo().author()
@@ -374,8 +367,7 @@ class OriginMerger(Client.Application):
 
             if (merged_origin is None and author == self.author and
                     agency_id == self.agencyID):
-                merged_origin = self.db_query.loadObject(type_info, origin_id)
-                merged_origin = DataModel.Origin.Cast(merged_origin)
+                merged_origin = origin
 
             if origin_id == self.primary_origin.publicID():
                 Logging.debug('Origin %s not eligible, already qualified for '
@@ -406,8 +398,7 @@ class OriginMerger(Client.Application):
                               % (origin_id, secondary_origin.publicID()))
                 continue
 
-            secondary_origin = self.db_query.loadObject(type_info, origin_id)
-            secondary_origin = DataModel.Origin.Cast(secondary_origin)
+            secondary_origin = origin
             Logging.debug('Origin %s qualified for secondary origin with '
                           'agencyID %s' % (origin_id, agency_id))
 
@@ -458,7 +449,7 @@ class OriginMerger(Client.Application):
             if station is None:
                 # Station is not in the inventory, arrival must be added
                 # to the origin after the relocation.
-                # But before check that arrival is already in the list
+                # But before check that arrival is not already in the list
                 # (same pick ID).
                 if all(arrival.pickID() != new_arrival.pickID() for arrival in
                        self.unknown_arrivals):
@@ -495,11 +486,16 @@ class OriginMerger(Client.Application):
         with the Arrivals, Magnitude and StationMagnitude of both
         origins.
         """
+        # This DB query must be finished before we start iterating over
+        # the events as otherwise we get nested queries, which are not
+        # allowed.
+        origins = [ori for ori in self.db_query.getOrigins(event.publicID())]
+
         self._retrieve_primary_origin(event)
         if not self.primary_origin:
             raise MergeException('No primary origin found')
 
-        self._retrieve_secondary_and_merged_origins(event)
+        self._retrieve_secondary_and_merged_origins(origins)
 
         # Process merged origin
         if self.merged_origin:
@@ -530,6 +526,11 @@ class OriginMerger(Client.Application):
         if not self.secondary_origin:
             raise MergeException('No secondary origin found')
 
+        # Load the primary and secondary origins entirely
+        self.db_query.load(self.primary_origin)
+        self.db_query.load(self.secondary_origin)
+
+        # Create the new origin from the primary and secondary origins
         new_origin = DataModel.Origin(self.primary_origin)
 
         self.unknown_arrivals = []
@@ -542,7 +543,8 @@ class OriginMerger(Client.Application):
             raise MergeException('No new arrivals')
 
         OriginMerger._copy_station_magnitudes(self.primary_origin, new_origin)
-        OriginMerger._copy_station_magnitudes(self.secondary_origin, new_origin)
+        OriginMerger._copy_station_magnitudes(self.secondary_origin,
+                                              new_origin)
         self._copy_magnitudes(self.primary_origin, new_origin)
         if self.primary_origin.magnitudeCount() == 0:
             self._copy_magnitudes(self.secondary_origin, new_origin)
