@@ -19,25 +19,23 @@ new origin is created with arrivals from both origins and then a relocation
       `evaluationMode` that matches the `input.evaluation_mode`, `scomerger`
       merges the origin from the *primary* agency with the most recent
       *secondary* one. A new origin is created with the arrivals of both
-      origins and relocated with `LOCSAT` (magnitude is not yet updated for the
-      moment).
+      origins and relocated (`LOCSAT` by default, magnitude is not yet updated
+      for the moment).
     - `scomerger` send a message to `scevent` to create the new origin in the
 	  database. An `originreference` is created as well to associate the origin
 	  to the event. `scevent` selects also a new preferred origin.
 
-  > **Note**
-  >
-  > Merged origin has **scomerger** as AUTHOR (used to know if it's a merged
-  > origin).
-  >
-  > Merged origin `EvaluationMode` is set to `automatic`.
-  >
-  > `scomerger` can send the messages to 2 differents `scevent`. The actions of
-  > removing merged origins and merging can indeed be separated (parameters
-  > `scomerger/connection/groupRemove` and `global/connection/primaryGroup`).
-  >
-  > Every modifications of the database must be done by `scevent`. That's why
-  > `scomerger` send messages to it.
+> **Note**
+>
+> The merged origin is detected with `author` (**scomerger** by default) and
+> `agencyID` fields.
+>
+> `scomerger` can send the messages to 2 differents `scevent`. The actions of
+> removing merged origins and merging can indeed be separated (parameters
+> `scomerger/connection/groupRemove` and `global/connection/primaryGroup`).
+>
+> Every modifications of the database must be done by `scevent`. That's why
+> `scomerger` send messages to it.
 
 ![Schéma](docs/schema.png)
 
