@@ -76,6 +76,7 @@ class OriginMerger(Client.Application):
         self.distance_cut_off = None
         self.ignore_initial_location = False
         self.use_origin_locator = False
+        self.filter_duplicate_arrival = False
         # Input configuration
         self.input_agency_ids = []
         self.input_authors = []
@@ -160,6 +161,11 @@ class OriginMerger(Client.Application):
             try:
                 self.use_origin_locator = \
                     self.configGetBool('locator.useOriginLocator')
+            except Config.Exception:
+                pass
+            try:
+                self.filter_duplicate_arrival = \
+                    self.configGetBool('locator.filterDuplicateArrival')
             except Config.Exception:
                 pass
 
@@ -438,17 +444,20 @@ class OriginMerger(Client.Application):
         """
         Copy the arrival from an origin to the other.
         """
-        # Load picks of the origin dest and store them in that list.
-        # Usefull to know if an arrival is already in the origin
-        # (with network/station/phase code).
-        picks_dest = []
-        for i in xrange(origin_dest.arrivalCount()):
-            arrival_dest = origin_dest.arrival(i)
-            pick_dest_id = arrival_dest.pickID()
-            pick_dest = self.db_query.loadObject(DataModel.Pick.TypeInfo(),
-                                                 pick_dest_id)
-            pick_dest = DataModel.Pick.Cast(pick_dest)
-            picks_dest.append(pick_dest)
+        if self.filter_duplicate_arrival:
+            # Load arrivals and picks of the origin dest and store them
+            # in list. Usefull to know if an arrival is already in the
+            # origin (with network/station/phase code).
+            picks_dest = []
+            arrivals_dest = []
+            for i in xrange(origin_dest.arrivalCount()):
+                arrival_dest = origin_dest.arrival(i)
+                pick_dest_id = arrival_dest.pickID()
+                pick_dest = self.db_query.loadObject(DataModel.Pick.TypeInfo(),
+                                                     pick_dest_id)
+                pick_dest = DataModel.Pick.Cast(pick_dest)
+                picks_dest.append(pick_dest)
+                arrivals_dest.append(arrival_dest)
 
         for i in xrange(origin_source.arrivalCount()):
             arrival = origin_source.arrival(i)
@@ -461,16 +470,19 @@ class OriginMerger(Client.Application):
             station_code = pick.waveformID().stationCode()
 
             # Check that the arrival is not already in the list
-            for pick_dest in picks_dest:
-                network_code_dest = pick_dest.waveformID().networkCode()
-                station_code_dest = pick_dest.waveformID().stationCode()
-                if pick.phaseHint().code() == pick_dest.phaseHint().code() \
-                        and network_code == network_code_dest \
-                        and station_code == station_code_dest:
-                    # Arrival is already in the list, set a weight of 0 if the
-                    # other arrival has a weight
-                    if arrival_dest.weight() > 0:
-                        new_arrival.setWeight(0)
+            if self.filter_duplicate_arrival:
+                for pick_dest, arrival_dest in zip(picks_dest, arrivals_dest):
+                    network_code_dest = pick_dest.waveformID().networkCode()
+                    station_code_dest = pick_dest.waveformID().stationCode()
+                    phase_code_dest = pick_dest.phaseHint().code()
+                    if pick.phaseHint().code() == phase_code_dest \
+                            and network_code == network_code_dest \
+                            and station_code == station_code_dest:
+                        # Arrival is already in the list, set a weight
+                        # of 0 if the other arrival has a weight
+                        if arrival_dest.weight() > 0:
+                            new_arrival.setWeight(0)
+                            break
 
             # Check that station is in inventory
             station = self.db_query.getStation(network_code, station_code,
@@ -522,9 +534,13 @@ class OriginMerger(Client.Application):
         # allowed.
         all_origins = [o for o in self.db_query.getOrigins(event.publicID())]
 
-        preferred_origin = DataModel.Origin.Find(event.preferredOriginID())
-
         origins = self._retrieve_origins_to_merge(all_origins)
+
+        preferred_origin = DataModel.Origin.Find(event.preferredOriginID())
+        # Put the preferred origin at the beginning of the list
+        if preferred_origin in origins:
+            origins.pop(origins.index(preferred_origin))
+            origins.insert(0, preferred_origin)
 
         # Process merged origin
         try:
@@ -583,7 +599,7 @@ class OriginMerger(Client.Application):
             raise MergeException('No new arrivals')
 
         # Copy depth, location and earthModelID of preferred origin
-        if preferred_origin and any([preferred_origin == o for o in origins]):
+        if preferred_origin in origins:
             new_origin.setDepth(preferred_origin.depth())
             new_origin.setLatitude(preferred_origin.latitude())
             new_origin.setLongitude(preferred_origin.longitude())

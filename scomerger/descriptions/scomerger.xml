@@ -54,6 +54,14 @@
 						used.
                     </description>
                 </parameter>
+                <parameter name="filterDuplicateArrival" type="boolean" default="false">
+                    <description>
+                        When an Arrival is present in several origins, relocate
+                        with only one Arrival and put a weight of 0 to the
+                        others. Choose in priority the Arrivals of the
+                        preferred origin.
+                    </description>
+                </parameter>
             </group>
             <group name="input">
                 <parameter name="agencyIDs" type="list:string">
