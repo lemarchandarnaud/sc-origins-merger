@@ -78,6 +78,7 @@ class OriginMerger(Client.Application):
         self.use_origin_locator = False
         # Input configuration
         self.input_agency_ids = []
+        self.input_authors = []
         self.input_evaluation_mode = None
         # Output configuration
         self.output_author = os.path.basename(__file__)
@@ -169,6 +170,11 @@ class OriginMerger(Client.Application):
             except Config.Exception:
                 pass
             try:
+                self.input_authors = \
+                    list(self.configGetStrings('input.authors'))
+            except Config.Exception:
+                pass
+            try:
 
                 mode = self.configGetString('input.evaluationMode')
                 self.input_evaluation_mode = \
@@ -215,29 +221,29 @@ class OriginMerger(Client.Application):
             'remove-merged-origin,R',
             "don't merge origin but remove merged origins")
 
-        self.commandline().addGroup('locator')
+        self.commandline().addGroup('Locator')
         self.commandline().addStringOption(
-            'locator',
+            'Locator',
             'locator-type',
             'locator to use')
         self.commandline().addStringOption(
-            'locator',
+            'Locator',
             'locator-profile',
             'locator profile')
         self.commandline().addStringOption(
-            'locator',
+            'Locator',
             'fixed-depth',
             'fix depth')
         self.commandline().addStringOption(
-            'locator',
+            'Locator',
             'distance-cut-off',
             'distance cut off')
         self.commandline().addOption(
-            'locator',
+            'Locator',
             'ignore-initial-location',
             'ignore initial location')
         self.commandline().addOption(
-            'locator',
+            'Locator',
             'use-origin-locator',
             'use the primary origin locator if possible')
 
@@ -256,12 +262,14 @@ class OriginMerger(Client.Application):
             'Input',
             'event,E',
             'event ID')
+
+        self.commandline().addGroup('Output')
         self.commandline().addStringOption(
-            'Input',
+            'Output',
             'author,Au',
             'author')
         self.commandline().addStringOption(
-            'Input',
+            'Output',
             'evaluation-mode',
             'origin evaluation mode (manual or automatic)')
 
@@ -303,6 +311,8 @@ class OriginMerger(Client.Application):
                 self.end_time = self.commandline().optionString('end')
             if self.commandline().hasOption('event'):
                 self.event_id = self.commandline().optionString('event')
+
+            # Output configuration
             if self.commandline().hasOption('author'):
                 self.output_author = self.commandline().optionString('author')
             if self.commandline().hasOption('evaluation-mode'):
@@ -380,9 +390,16 @@ class OriginMerger(Client.Application):
             evaluation_mode = origin.evaluationMode()
 
             # Check agency ID
-            if agency_id not in self.input_agency_ids:
+            if (self.input_agency_ids and
+                    agency_id not in self.input_agency_ids):
                 Logging.debug('Origin %s not eligible, agencyID %s not allowed'
                               % (origin_id, agency_id))
+                continue
+
+            # Check author
+            if (self.input_authors and author not in self.input_authors):
+                Logging.debug('Origin %s not eligible, author %s not allowed'
+                              % (origin_id, author))
                 continue
 
             # Check evaluation mode

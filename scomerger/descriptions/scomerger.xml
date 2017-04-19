@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <seiscomp>
 	<module name="scomerger" category="Processing">
-		<description>Associates an Origin to an Event or forms a new Event if no match is found. Selects the preferred magnitude.</description>
+		<description>Merge several Origin inside an Event.</description>
 		<configuration>
             <group name="mode">
 				<parameter name="test" type="boolean" default="false">
@@ -13,14 +13,16 @@
             <group name="connection">
                 <parameter name="groupRemove" type="string">
                     <description>
-                        Defines the group where the module sends the messages to remove origins.
+                        Defines the group where the module sends the messages
+                        to remove origins.
                     </description>
                 </parameter>
             </group>
             <group name="locator">
                 <parameter name="type" type="string" default="LOCSAT">
                     <description>
-                        Defines the locator to be used, such as NonLinLoc, Hypo71 or LOCSAT
+                        Defines the locator to be used, such as NonLinLoc,
+                        Hypo71 or LOCSAT
                     </description>
                 </parameter>
                 <parameter name="profile" type="string" default="iasp91">
@@ -45,8 +47,8 @@
                 </parameter>
                 <parameter name="useOriginLocator" type="boolean" default="false">
                     <description>
-                        Use the locator of the primary origin. The locator type
-						and profile are retrieve from the methodID and
+                        Use the locator of the preferred origin. The locator
+                        type and profile are retrieve from the methodID and
 						earthModelID of the origin. If the locator can't be
 						found, the configured locator type/profile will be
 						used.
@@ -56,29 +58,40 @@
             <group name="input">
                 <parameter name="agencyIDs" type="list:string">
                     <description>
-                        AgencyID list.
+                        AgencyID list of the origins to merge. If the list is
+                        empty, all agencyIDs are taken. For each agency ID,
+                        only the latest origin is kept.
+                    </description>
+                </parameter>
+                <parameter name="authors" type="list:string">
+                    <description>
+                        Author list of the origins to merge. If the list is
+                        empty, all authors are taken.
                     </description>
                 </parameter>
                 <parameter name="evaluationMode" type="string">
                     <description>
-                        The evaluation mode of the input origins. Can be either &quot;manual&quot;, &quot;automatic&quot; or blank.
+                        The evaluation mode of the origins to merge. Can be
+                        either &quot;manual&quot;, &quot;automatic&quot; or
+                        blank.
                     </description>
                 </parameter>
             </group>
             <group name="output">
                 <parameter name="author" type="string">
                     <description>
-                        Defines merged origin author.
+                        Author of the new merged origin.
                     </description>
                 </parameter>
                 <parameter name="agencyID" type="string">
                     <description>
-                        Defines merged origin agencyID.
+                        AgencyID of the new merged origin.
                     </description>
                 </parameter>
                 <parameter name="evaluationMode" type="string" default="automatic">
                     <description>
-                        The evaluation mode of the new origin. Can be either &quot;manual&quot; or &quot;automatic&quot;.
+                        Evaluation mode of the new merged origin. Can be either
+                        &quot;manual&quot; or &quot;automatic&quot;.
                     </description>
                 </parameter>
             </group>
@@ -94,13 +107,9 @@
 				<optionReference>generic#shutdown-master-module</optionReference>
 				<optionReference>generic#shutdown-master-username</optionReference>
 				<option flag="x" long-flag="expiry" argument="time">
-					<description>Time span in hours after which objects expire.</description>
-				</option>
-				<option flag="O" long-flag="origin-id" argument="publicID">
 					<description>
-						OriginID to be associated. When given no messages are sent.
-						Only the status of the association is written to stdout.
-					</description>
+                        Time span in hours after which objects expire.
+                    </description>
 				</option>
 			</group>
 
