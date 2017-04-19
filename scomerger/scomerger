@@ -459,12 +459,14 @@ class OriginMerger(Client.Application):
             station = self.db_query.getStation(network_code, station_code,
                                                pick.time().value())
             if station is None:
-                # Station is not in the inventory, arrival must be added
-                # to the origin after the relocation.
-                # But before check that arrival is not already in the list
-                # (same pick ID).
+                # Station is not in the inventory, arrival can't be
+                # used for relocation.
+                # But before check that arrival is not already in the
+                # list (same pick ID).
                 if all(arrival.pickID() != new_arrival.pickID() for arrival in
                        self.unknown_arrivals):
+                    Logging.debug("Can't use Arrival from unknown station "
+                                  "%s.%s" % (network_code, station_code))
                     self.unknown_arrivals.append(new_arrival)
             else:
                 origin_dest.add(new_arrival)
@@ -717,13 +719,6 @@ class OriginMerger(Client.Application):
 
         new_origin.setEvaluationMode(self.output_evaluation_mode)
         new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
-
-        # Add arrivals from station not found in the inventory
-        for arrival in self.unknown_arrivals:
-            # Since these arrivals wasn't used to relocated,
-            # put a weight of 0.
-            arrival.setWeight(0)
-            new_origin.add(arrival)
 
         # Normally, magnitudes should be recalculated after relocation.
         OriginMerger._copy_magnitudes(origin, new_origin)
