@@ -1,26 +1,26 @@
 SCOMERGER
 =========
 
-`scomerger` is a seiscomp3 application which aims to merge origins belonging
-to the same event and from 2 differents authors (*primary* and *secondary*). A
-new origin is created with arrivals from both origins and then a relocation
-(LocSAT with iaspei91 profile by default) is done.
+`scomerger` is a seiscomp3 application which aims to merge several origins
+belonging to the same event from differents agencys and authors. A new origin
+is created with arrivals of all origins and then a relocation (LocSAT with
+iaspei91 profile by default) is done.
 
 `scomerger` works like this:
 
 - it listens to `EVENT` messages from `scevent`,
-- when a `EVENT` message is received :
+- when an `EVENT` message is received :
 
-    - if the preferred origin is already a merged origin, `scomerger` send a
+    - if a merged origin exists without new origin, nothing is done.
+    - if a merged origin exists but a newer origin exists, `scomerger` send a
 	  message to `scevent` to remove this merged origin. `scevent` selects
       then a new preferred origin and sends a new `EVENT` message (which will
       be received and processed by `scomerger`).
-	- if the preferred origin is from one of the *primary* agency and has an
-      `evaluationMode` that matches the `input.evaluation_mode`, `scomerger`
-      merges the origin from the *primary* agency with the most recent
-      *secondary* one. A new origin is created with the arrivals of both
-      origins and relocated (`LOCSAT` by default, magnitude is not yet updated
-      for the moment).
+	- If no merged origin is present, select all the origins that match the
+      input agencys, authors and evaluation mode. Only the newest origin is
+      kept for a given agency. So, `scomerger` merges these origins and a new
+      origin is created with all arrivals and relocated (`LOCSAT` by default,
+      magnitude is not yet updated for the moment).
     - `scomerger` send a message to `scevent` to create the new origin in the
 	  database. An `originreference` is created as well to associate the origin
 	  to the event. `scevent` selects also a new preferred origin.

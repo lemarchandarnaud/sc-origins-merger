@@ -50,8 +50,7 @@
                         Use the locator of the preferred origin. The locator
                         type and profile are retrieve from the methodID and
 						earthModelID of the origin. If the locator can't be
-						found, the configured locator type/profile will be
-						used.
+						found, the configured locator type/profile is used.
                     </description>
                 </parameter>
                 <parameter name="filterDuplicateArrival" type="boolean" default="false">
@@ -86,14 +85,14 @@
                 </parameter>
             </group>
             <group name="output">
-                <parameter name="author" type="string">
-                    <description>
-                        Author of the new merged origin.
-                    </description>
-                </parameter>
                 <parameter name="agencyID" type="string">
                     <description>
                         AgencyID of the new merged origin.
+                    </description>
+                </parameter>
+                <parameter name="author" type="string">
+                    <description>
+                        Author of the new merged origin.
                     </description>
                 </parameter>
                 <parameter name="evaluationMode" type="string" default="automatic">
