@@ -20,6 +20,14 @@ def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
     return abs(a - b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
 
+class UnknownLocatorException(Exception):
+    """Raised when the locator isn't available"""
+
+
+class NoMergedOriginException(Exception):
+    """Raised when no merged origin can't be found"""
+
+
 class MergeException(Exception):
     """Raised when the merge operation can't be performed"""
 
@@ -30,7 +38,7 @@ class LocatorException(Exception):
 
 class OriginMerger(Client.Application):
     """
-    Merge 2 origins inside events by agency names.
+    Merge several origins inside events by agency names.
     """
 
     # Convert an evaluation mode string to the correct enum
@@ -53,28 +61,33 @@ class OriginMerger(Client.Application):
         self.setMessagingUsername('')
 
         self.events = []
-        self.primary_origin = None
-        self.secondary_origin = None
-        self.merged_origin = None
+        # Store locators used
+        self.locators = {}
         # Store arrivals from station not in the inventory
         self.unknown_arrivals = []
 
         # Configuration variables (or arguments of the script)
+        # Mode configuration
         self.mode_test = False
+        # Connection configuration
         self.group_remove = None
-        self.remove_merged_origin = False
-        self.start_time = None
-        self.begin_time = None
-        self.event_id = None
-        self.author = os.path.basename(__file__)
-        self.primary_origin_agencyIDs = []
-        self.secondary_origin_agencyIDs = []
-        self.output_evaluation_mode = DataModel.AUTOMATIC
-        self.input_evaluation_mode = None
+        # Locator configuration
         self.fixed_depth = None
         self.distance_cut_off = None
         self.ignore_initial_location = False
         self.use_origin_locator = False
+        # Input configuration
+        self.input_agency_ids = []
+        self.input_evaluation_mode = None
+        # Output configuration
+        self.output_author = os.path.basename(__file__)
+        self.output_agency_id = None
+        self.output_evaluation_mode = DataModel.AUTOMATIC
+        # Script parameters
+        self.remove_merged_origin = False
+        self.start_time = None
+        self.begin_time = None
+        self.event_id = None
 
     def init(self):
         try:
@@ -83,17 +96,13 @@ class OriginMerger(Client.Application):
 
             self.db_query = DataModel.DatabaseQuery(self.database())
 
-            # Configure locator to be used
-            self.locator = \
-                Seismology.LocatorInterface.Create(self.locator_type)
-            if not self.locator:
+            # Configure default locator to be used
+            try:
+                self._init_locator(self.locator_type)
+            except UnknownLocatorException:
                 Logging.error('Locator %s not available -> abort'
                               % self.locator_type)
                 return False
-
-            # Use this profile with the locator
-            self.locator.init(self.configuration())
-            self.locator.setProfile(self.locator_profile)
 
             return True
         except:
@@ -109,46 +118,29 @@ class OriginMerger(Client.Application):
             if not Client.Application.initConfiguration(self):
                 return False
 
+            # Mode configuration
             try:
                 self.mode_test = self.configGetBool('mode.test')
             except Config.Exception:
                 pass
+
+            # Connection configuration
             try:
                 self.group_remove = \
                     self.configGetString('connection.groupRemove')
             except Config.Exception:
                 pass
-            try:
-                self.primary_origin_agencyIDs = \
-                    list(self.configGetStrings('input.primaryOriginAgencyIDs'))
-            except Config.Exception:
-                pass
-            try:
-                self.secondary_origin_agencyIDs = list(
-                    self.configGetStrings('input.secondaryOriginAgencyIDs')
-                )
-            except Config.Exception:
-                pass
-            try:
 
-                mode = self.configGetString('input.evaluationMode')
-                self.input_evaluation_mode = \
-                    OriginMerger.ENUM_EVALUATION_MODES[mode.lower()]
-            except (Config.Exception, KeyError):
-                pass
+            # Locator configuration
             try:
-                self.author = self.configGetString('output.author')
+                self.locator_type = \
+                    self.configGetString('locator.type')
             except Config.Exception:
                 pass
             try:
-                self.agencyID = self.configGetString('output.agencyID')
+                self.locator_profile = \
+                    self.configGetString('locator.profile')
             except Config.Exception:
-                pass
-            try:
-                str_mode = self.configGetString('output.evaluationMode')
-                self.output_evaluation_mode = \
-                    OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
-            except (Config.Exception, KeyError):
                 pass
             try:
                 self.fixed_depth = self.configGetDouble('locator.fixedDepth')
@@ -169,20 +161,35 @@ class OriginMerger(Client.Application):
                     self.configGetBool('locator.useOriginLocator')
             except Config.Exception:
                 pass
+
+            # Input configuration
             try:
-                self.use_origin_profile = \
-                    self.configGetBool('locator.useOriginLocator')
+                self.input_agency_ids = \
+                    list(self.configGetStrings('input.agencyIDs'))
             except Config.Exception:
                 pass
             try:
-                self.locator_type = \
-                    self.configGetString('locator.type')
+
+                mode = self.configGetString('input.evaluationMode')
+                self.input_evaluation_mode = \
+                    OriginMerger.ENUM_EVALUATION_MODES[mode.lower()]
+            except (Config.Exception, KeyError):
+                pass
+
+            # Output configuration
+            try:
+                self.output_author = self.configGetString('output.author')
             except Config.Exception:
                 pass
             try:
-                self.locator_profile = \
-                    self.configGetString('locator.profile')
+                self.output_agency_id = self.configGetString('output.agencyID')
             except Config.Exception:
+                pass
+            try:
+                str_mode = self.configGetString('output.evaluationMode')
+                self.output_evaluation_mode = \
+                    OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
+            except (Config.Exception, KeyError):
                 pass
 
             return True
@@ -207,29 +214,7 @@ class OriginMerger(Client.Application):
             'Mode',
             'remove-merged-origin,R',
             "don't merge origin but remove merged origins")
-        self.commandline().addGroup('Input')
-        self.commandline().addStringOption(
-            'Input',
-            'begin',
-            'specify the lower bound of the time interval '
-            '(example: 2016-03-01T00:00:00.0)')
-        self.commandline().addStringOption(
-            'Input',
-            'end',
-            'specify the upper bound of the time interval '
-            '(example: 2016-03-01T00:00:00.0)')
-        self.commandline().addStringOption(
-            'Input',
-            'event,E',
-            'event ID')
-        self.commandline().addStringOption(
-            'Input',
-            'author,Au',
-            'author')
-        self.commandline().addStringOption(
-            'Input',
-            'evaluation-mode',
-            'origin evaluation mode (manual or automatic)')
+
         self.commandline().addGroup('locator')
         self.commandline().addStringOption(
             'locator',
@@ -256,6 +241,30 @@ class OriginMerger(Client.Application):
             'use-origin-locator',
             'use the primary origin locator if possible')
 
+        self.commandline().addGroup('Input')
+        self.commandline().addStringOption(
+            'Input',
+            'begin',
+            'specify the lower bound of the time interval '
+            '(example: 2016-03-01T00:00:00.0)')
+        self.commandline().addStringOption(
+            'Input',
+            'end',
+            'specify the upper bound of the time interval '
+            '(example: 2016-03-01T00:00:00.0)')
+        self.commandline().addStringOption(
+            'Input',
+            'event,E',
+            'event ID')
+        self.commandline().addStringOption(
+            'Input',
+            'author,Au',
+            'author')
+        self.commandline().addStringOption(
+            'Input',
+            'evaluation-mode',
+            'origin evaluation mode (manual or automatic)')
+
     def validateParameters(self):
         """
         Retrieve parameters passed at the command execution.
@@ -264,27 +273,12 @@ class OriginMerger(Client.Application):
             if Client.Application.validateParameters(self) is False:
                 return False
 
+            # Mode configuration
             self.mode_test = self.commandline().hasOption('test')
             self.remove_merged_origin = \
                 self.commandline().hasOption('remove-merged-origin')
 
-            if self.commandline().hasOption('begin') \
-                    and self.commandline().hasOption('end'):
-                self.start_time = self.commandline().optionString('begin')
-                self.end_time = self.commandline().optionString('end')
-            if self.commandline().hasOption('event'):
-                self.event_id = self.commandline().optionString('event')
-            if self.commandline().hasOption('author'):
-                self.author = self.commandline().optionString('author')
-            if self.commandline().hasOption('evaluation-mode'):
-                try:
-                    str_mode = \
-                        self.commandline().optionString('evaluation-mode')
-                    self.output_evaluation_mode = \
-                        OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
-                except KeyError:
-                    Logging.error('Wrong evaluation-mode parameter')
-
+            # Locator configuration
             if self.commandline().hasOption('locator-type'):
                 self.locator_type = \
                     self.commandline().optionString('locator-type')
@@ -297,10 +291,29 @@ class OriginMerger(Client.Application):
             if self.commandline().hasOption('distance-cut-off'):
                 dcu = self.commandline().optionString('distance_cut_off')
                 self.distance_cut_off = float(dcu)
-            self.ignore_initial_location = \
-                self.commandline().hasOption('ignore-initial-location')
-            self.use_origin_locator = \
-                self.commandline().hasOption('use-origin-locator')
+            if self.commandline().hasOption('ignore-initial-location'):
+                self.ignore_initial_location = True
+            if self.commandline().hasOption('use-origin-locator'):
+                self.use_origin_locator = True
+
+            # Input configuration
+            if self.commandline().hasOption('begin') \
+                    and self.commandline().hasOption('end'):
+                self.start_time = self.commandline().optionString('begin')
+                self.end_time = self.commandline().optionString('end')
+            if self.commandline().hasOption('event'):
+                self.event_id = self.commandline().optionString('event')
+            if self.commandline().hasOption('author'):
+                self.output_author = self.commandline().optionString('author')
+            if self.commandline().hasOption('evaluation-mode'):
+                try:
+                    str_mode = \
+                        self.commandline().optionString('evaluation-mode')
+                    self.output_evaluation_mode = \
+                        OriginMerger.ENUM_EVALUATION_MODES[str_mode.lower()]
+                except KeyError:
+                    Logging.error('Wrong evaluation-mode parameter')
+
             return True
         except:
             info = traceback.format_exception(*sys.exc_info())
@@ -310,50 +323,51 @@ class OriginMerger(Client.Application):
 
         return False
 
-    def _retrieve_primary_origin(self, event):
+    def _init_locator(self, locator_type):
         """
-        Retrieve the primary origin.
+        Create a locator with the wanted locator type if it doesn't exist.
 
-        The origin must be the preferred origin of the event.
+        If the locator isn't available, raise UnknownLocatorException.
         """
-        self.primary_origin = None
+        try:
+            return self.locators[locator_type.lower()]
+        except KeyError:
+            locator = Seismology.LocatorInterface.Create(locator_type)
+            if not locator:
+                raise UnknownLocatorException()
 
-        origin_id = event.preferredOriginID()
-        preferred_origin = DataModel.Origin.Find(origin_id)
+            locator.init(self.configuration())
 
-        if not preferred_origin or not preferred_origin.creationInfo():
-            Logging.warning('No preferred origin found')
-            return
+            self.locators[self.locator_type.lower()] = locator
 
-        agency_id = preferred_origin.creationInfo().agencyID()
-        if agency_id not in self.primary_origin_agencyIDs:
-            Logging.debug('Preferred origin not eligible, agency %s not in '
-                          'PrimaryOriginAgencyIDs' % agency_id)
-            return
+            return locator
 
-        evaluation_mode = preferred_origin.evaluationMode()
-        if (self.input_evaluation_mode is None or
-                evaluation_mode == self.input_evaluation_mode):
-            self.primary_origin = preferred_origin
-            Logging.debug('Origin %s qualified for primary origin with '
-                          'agencyID %s' % (origin_id, agency_id))
-        else:
-            try:
-                str_mode = OriginMerger.STR_EVALUATION_MODES[evaluation_mode]
-                Logging.debug('Preferred origin not eligible, evaluationMode '
-                              '%s not allowed' % str_mode)
-            except KeyError:
-                Logging.debug('Preferred origin not eligible, evaluationMode '
-                              'is unknown')
-
-    def _retrieve_secondary_and_merged_origins(self, origins):
+    def _retrieve_merged_origin(self, origins):
         """
-        Retrieve the secondary origin and the merged origins.
+        Retrieve the merged origin with the agency ID and the author.
         """
-        secondary_origin = None
-        merged_origin = None
-
         for origin in origins:
+            origin = DataModel.Origin.Cast(origin)
+
+            if not origin:
+                continue
+
+            agency_id = origin.creationInfo().agencyID()
+            author = origin.creationInfo().author()
+
+            if (agency_id == self.output_agency_id and
+                    author == self.output_author):
+                return origin
+
+        raise NoMergedOriginException()
+
+    def _retrieve_origins_to_merge(self, all_origins):
+        """
+        Retrieve all the origins which can be merged.
+        """
+        origins = {}
+
+        for origin in all_origins:
             origin = DataModel.Origin.Cast(origin)
 
             if not origin:
@@ -365,20 +379,13 @@ class OriginMerger(Client.Application):
             creation_time = origin.creationInfo().creationTime()
             evaluation_mode = origin.evaluationMode()
 
-            if (merged_origin is None and author == self.author and
-                    agency_id == self.agencyID):
-                merged_origin = origin
-
-            if origin_id == self.primary_origin.publicID():
-                Logging.debug('Origin %s not eligible, already qualified for '
-                              'primary origin' % origin_id)
-                continue
-
-            if agency_id not in self.secondary_origin_agencyIDs:
+            # Check agency ID
+            if agency_id not in self.input_agency_ids:
                 Logging.debug('Origin %s not eligible, agencyID %s not allowed'
                               % (origin_id, agency_id))
                 continue
 
+            # Check evaluation mode
             if (self.input_evaluation_mode is not None and
                     self.input_evaluation_mode != evaluation_mode):
                 try:
@@ -391,19 +398,24 @@ class OriginMerger(Client.Application):
                                   'unknown' % origin_id)
                 continue
 
-            if (secondary_origin is not None and creation_time.get() <
-                    secondary_origin.creationInfo().creationTime().get()):
-                Logging.debug('Origin %s not eligible, earlier than already '
-                              'qualified origin %s'
-                              % (origin_id, secondary_origin.publicID()))
-                continue
+            # Check creation time
+            try:
+                last_origin = origins[agency_id]
+            except KeyError:
+                pass
+            else:
+                last_creation_time = last_origin.creationInfo().creationTime()
+                if creation_time.get() < last_creation_time.get():
+                    Logging.debug('Origin %s not eligible, earlier than '
+                                  'already qualified origin %s'
+                                  % (origin_id, last_origin.publicID()))
+                    continue
 
-            secondary_origin = origin
-            Logging.debug('Origin %s qualified for secondary origin with '
-                          'agencyID %s' % (origin_id, agency_id))
+            origins[agency_id] = origin
+            Logging.debug('Origin %s qualified with agencyID %s and author %s'
+                          % (origin_id, agency_id, author))
 
-        self.secondary_origin = secondary_origin
-        self.merged_origin = merged_origin
+        return origins.values()
 
     def _copy_arrivals(self, origin_source, origin_dest):
         """
@@ -482,76 +494,87 @@ class OriginMerger(Client.Application):
 
     def _merge(self, event):
         """
-        Get the primary and secondary origins and return a new origin
+        Get the origins which can be merged and return a new origin
         with the Arrivals, Magnitude and StationMagnitude of both
         origins.
         """
         # This DB query must be finished before we start iterating over
         # the events as otherwise we get nested queries, which are not
         # allowed.
-        origins = [ori for ori in self.db_query.getOrigins(event.publicID())]
+        all_origins = [o for o in self.db_query.getOrigins(event.publicID())]
 
-        self._retrieve_primary_origin(event)
-        if not self.primary_origin:
-            raise MergeException('No primary origin found')
+        preferred_origin = DataModel.Origin.Find(event.preferredOriginID())
 
-        self._retrieve_secondary_and_merged_origins(origins)
+        origins = self._retrieve_origins_to_merge(all_origins)
 
         # Process merged origin
-        if self.merged_origin:
+        try:
+            merged_origin = self._retrieve_merged_origin(all_origins)
+
+            try:
+                max_creation_time = max(
+                    [o.creationInfo().creationTime().get() for o in origins])
+            except ValueError:
+                max_creation_time = 0
+
             if self.remove_merged_origin:
                 Logging.info('Remove merged origin %s'
-                             % self.merged_origin.publicID())
-                self._remove(event, self.merged_origin)
-            elif not self.secondary_origin:
-                Logging.info('No secondary origin found, remove merged '
-                             'origin %s' % self.merged_origin.publicID())
-                self._remove(event, self.merged_origin)
-            elif (self.merged_origin.creationInfo().creationTime() <
-                    self.secondary_origin.creationInfo().creationTime()):
-                Logging.info('Secondary origin is newer than merged origin, '
+                             % merged_origin.publicID())
+                self._remove(event, merged_origin)
+            elif (merged_origin.creationInfo().creationTime().get() <
+                    max_creation_time):
+                Logging.info('Some origins are newer than merged origin, '
                              'remove merged origin %s'
-                             % self.merged_origin.publicID())
-                self._remove(event, self.merged_origin)
+                             % merged_origin.publicID())
+                self._remove(event, merged_origin)
             else:
-                Logging.info('Origins %s and %s already merged'
-                             % (self.primary_origin.publicID(),
-                                self.merged_origin.publicID()))
+                public_ids = [origin.publicID() for origin in origins]
+                message = 'Origins already merged:'
+
+                for public_id in public_ids:
+                    message += '\n    - %s' % public_id
+
+                Logging.info(message)
 
             raise MergeException()
+        except NoMergedOriginException:
+            if self.remove_merged_origin:
+                raise MergeException()
 
-        if self.remove_merged_origin:
-            raise MergeException()
+        # Process origins to merge
+        if len(origins) <= 1:
+            raise MergeException('Not enough origins to merge')
 
-        if not self.secondary_origin:
-            raise MergeException('No secondary origin found')
+        # Load the origins entirely
+        for origin in origins:
+            self.db_query.load(origin)
 
-        # Load the primary and secondary origins entirely
-        self.db_query.load(self.primary_origin)
-        self.db_query.load(self.secondary_origin)
-
-        # Create the new origin from the primary and secondary origins
-        new_origin = DataModel.Origin(self.primary_origin)
+        # Create the new origin
+        new_origin = DataModel.Origin.Create()
 
         self.unknown_arrivals = []
 
-        self._copy_arrivals(self.primary_origin, new_origin)
-        self._copy_arrivals(self.secondary_origin, new_origin)
+        for origin in origins:
+            self._copy_arrivals(origin, new_origin)
+            self._copy_station_magnitudes(origin, new_origin)
 
         arrival_count = new_origin.arrivalCount() + len(self.unknown_arrivals)
-        if arrival_count == self.primary_origin.arrivalCount():
+        max_arrival_count = max([origin.arrivalCount() for origin in origins])
+        if arrival_count == max_arrival_count:
             raise MergeException('No new arrivals')
 
-        OriginMerger._copy_station_magnitudes(self.primary_origin, new_origin)
-        OriginMerger._copy_station_magnitudes(self.secondary_origin,
-                                              new_origin)
-        self._copy_magnitudes(self.primary_origin, new_origin)
-        if self.primary_origin.magnitudeCount() == 0:
-            self._copy_magnitudes(self.secondary_origin, new_origin)
+        # Copy depth, location and earthModelID of preferred origin
+        if preferred_origin and any([preferred_origin == o for o in origins]):
+            new_origin.setDepth(preferred_origin.depth())
+            new_origin.setLatitude(preferred_origin.latitude())
+            new_origin.setLongitude(preferred_origin.longitude())
+            new_origin.setMethodID(preferred_origin.methodID())
+            new_origin.setEarthModelID(preferred_origin.earthModelID())
 
-        Logging.info('Origins %s and %s merged' %
-                     (self.primary_origin.publicID(),
-                      self.secondary_origin.publicID()))
+        message = 'Following origins merged:'
+        for origin in origins:
+            message += '\n    - %s' % origin.publicID()
+        Logging.info(message)
 
         return new_origin
 
@@ -579,48 +602,67 @@ class OriginMerger(Client.Application):
             self.db_query.load(inv.network(i))
         return inv
 
-    def _get_locator(self, origin, use_origin_locator=False, depth=None):
+    def _get_locator_parameters(self, origin):
         """
-        Get the locator which will be used for the relocation.
+        Get the locators with their parameters which will be used for
+        the relocation.
+
+        If the first locator can't relocate the origin, the second
+        locator is used and so on.
         """
-        # Set the locator
-        locator = self.locator
-        if use_origin_locator:
-            locator_type = origin.methodID()
+        locator = None
+        parameters = []
+        if self.use_origin_locator:
+            try:
+                locator = self._init_locator(origin.methodID().lower())
+            except UnknownLocatorException:
+                Logging.info('Locator %s not available' % origin.methodID())
+            else:
+                if self.fixed_depth is None:
+                    # Locator with released depth
+                    parameters.append((
+                        locator,
+                        origin.earthModelID(),
+                        None
+                    ))
+                    # Locator with fixed depth
+                    parameters.append((
+                        locator,
+                        origin.earthModelID(),
+                        origin.depth().value()
+                    ))
+                else:
+                    parameters.append((
+                        locator,
+                        origin.earthModelID(),
+                        self.fixed_depth
+                    ))
 
-            if locator_type.upper() != 'LOCSAT':
-                locator =  \
-                    Seismology.LocatorInterface.Create(locator_type)
-                try:
-                    locator.init(self.configuration())
-                except AttributeError:
-                    Logging.error('Locator %s not available, use %s'
-                                  % (locator_type, self.locator.name()))
-                    locator = self.locator
+        # Try the default locator
+        default_locator = self.locators[self.locator_type.lower()]
+        if (default_locator is not locator or
+                self.locator_profile != origin.earthModelID()):
+            if self.fixed_depth is None:
+                # Locator with released depth
+                parameters.append((
+                    default_locator,
+                    self.locator_profile,
+                    None
+                ))
+                # Locator with fixed depth
+                parameters.append((
+                    default_locator,
+                    self.locator_profile,
+                    origin.depth().value()
+                ))
+            else:
+                parameters.append((
+                    default_locator,
+                    self.locator_profile,
+                    self.fixed_depth
+                ))
 
-            locator.setProfile(origin.earthModelID())
-        else:
-            locator.setProfile(self.locator_profile)
-
-        # Set depth
-        depth = depth or origin.depth()
-        locator.releaseDepth()
-        try:
-            if self.fixed_depth is not None:
-                locator.setFixedDepth(self.fixed_depth)
-            elif isclose(depth.uncertainty(), 0):
-                locator.setFixedDepth(depth.value())
-        except (AttributeError, Core.ValueException, TypeError):
-            Logging.debug("Can't use depth")
-
-        # Set distance cut off
-        if self.distance_cut_off is not None:
-            locator.setDistanceCutOff(self.distance_cut_off)
-
-        # Set ignore initial location
-        locator.setIgnoreInitialLocation(self.ignore_initial_location)
-
-        return locator
+        return parameters
 
     def _relocate(self, origin):
         """
@@ -635,27 +677,23 @@ class OriginMerger(Client.Application):
 
         # Prepare a list of parameters to try different locator
         # parameters. This is useful when the relocation fails.
-        parameters = []
-        # Try the locator of the primary origin with the primary origin
-        # depth
-        parameters.append((self.use_origin_locator, origin.depth()))
-        # Try the locator of the primary origin with the secondary
-        # origin depth
-        if self.fixed_depth is None:
-            parameters.append((self.use_origin_locator,
-                               self.secondary_origin.depth()))
-        # Try the default locator
-        if self.use_origin_locator:
-            locator = self._get_locator(origin, self.use_origin_locator)
-            if (locator is not self.locator or
-                    origin.earthModelID() != self.locator_profile):
-                parameters.append((False, origin.depth()))
+        parameters = self._get_locator_parameters(origin)
 
         # Let's go! Time to relocate!
         new_origin = None
-        for use_origin_locator, depth in parameters:
-            locator = self._get_locator(origin, use_origin_locator, depth)
-            Logging.info("Try to relocate with locator %s" % locator.name())
+        for locator, locator_profile, depth in parameters:
+            locator.setProfile(locator_profile)
+            if depth is None:
+                Logging.info(("Try to relocate with locator %s, profile %s "
+                             "and released depth")
+                             % (locator.name(), locator_profile))
+                locator.releaseDepth()
+            else:
+                Logging.info(("Try to relocate with locator %s, profile %s "
+                             "and fixed depth %s")
+                             % (locator.name(), locator_profile, depth))
+                locator.setFixedDepth(depth)
+
             try:
                 new_origin = locator.relocate(origin)
                 break
@@ -674,8 +712,8 @@ class OriginMerger(Client.Application):
             raise LocatorException()
 
         # There are some modifications to do on the generated origin
-        new_origin.creationInfo().setAgencyID(self.agencyID)
-        new_origin.creationInfo().setAuthor(self.author)
+        new_origin.creationInfo().setAgencyID(self.output_agency_id)
+        new_origin.creationInfo().setAuthor(self.output_author)
 
         new_origin.setEvaluationMode(self.output_evaluation_mode)
         new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
@@ -701,8 +739,9 @@ class OriginMerger(Client.Application):
         journaling = DataModel.Journaling()
         journal_entry = DataModel.JournalEntry()
         journal_entry.setCreated(Core.Time_GMT())
-        journal_entry.setSender(self.author)
-        # No doc at all for 'EvPrefOrgAutomatic' (see eventttool.cpp)
+        journal_entry.setSender(self.output_author)
+        # No doc at all for 'EvPrefOrgAutomatic' (see
+        # seiscomp3/src/trunk/apps/processing/scevent/eventtool.cpp)
         journal_entry.setAction('EvPrefOrgAutomatic')
         journal_entry.setObjectID(event.publicID())
         journaling.add(journal_entry)

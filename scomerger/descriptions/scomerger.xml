@@ -54,14 +54,9 @@
                 </parameter>
             </group>
             <group name="input">
-                <parameter name="primaryOriginAgencyIDs" type="list:string">
+                <parameter name="agencyIDs" type="list:string">
                     <description>
-                        Primary agencyID list.
-                    </description>
-                </parameter>
-                <parameter name="secondaryOriginAgencyIDs" type="list:string">
-                    <description>
-                        Secondary agencyID list.
+                        AgencyID list.
                     </description>
                 </parameter>
                 <parameter name="evaluationMode" type="string">
