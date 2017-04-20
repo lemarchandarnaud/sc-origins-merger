@@ -500,34 +500,10 @@ class OriginMerger(Client.Application):
             else:
                 origin_dest.add(new_arrival)
 
-    @staticmethod
-    def _copy_magnitudes(origin_source, origin_dest):
-        """
-        Copy the magnitudes from an origin to the other.
-        """
-        for i in xrange(origin_source.magnitudeCount()):
-            magnitude = origin_source.magnitude(i)
-            new_magnitude = DataModel.Magnitude(magnitude)
-            DataModel.PublicObject.GenerateId(new_magnitude)
-            origin_dest.add(new_magnitude)
-
-    @staticmethod
-    def _copy_station_magnitudes(origin_source, origin_dest):
-        """
-        Copy the station magnitudes from an origin to the other.
-        """
-        for i in xrange(origin_source.stationMagnitudeCount()):
-            station_magnitude = origin_source.stationMagnitude(i)
-            new_station_magnitude = \
-                DataModel.StationMagnitude(station_magnitude)
-            DataModel.PublicObject.GenerateId(new_station_magnitude)
-            origin_dest.add(new_station_magnitude)
-
     def _merge(self, event):
         """
         Get the origins which can be merged and return a new origin
-        with the Arrivals, Magnitude and StationMagnitude of both
-        origins.
+        with the Arrivals of all origins.
         """
         # This DB query must be finished before we start iterating over
         # the events as otherwise we get nested queries, which are not
@@ -591,7 +567,6 @@ class OriginMerger(Client.Application):
 
         for origin in origins:
             self._copy_arrivals(origin, new_origin)
-            self._copy_station_magnitudes(origin, new_origin)
 
         arrival_count = new_origin.arrivalCount() + len(self.unknown_arrivals)
         max_arrival_count = max([origin.arrivalCount() for origin in origins])
@@ -752,10 +727,6 @@ class OriginMerger(Client.Application):
 
         new_origin.setEvaluationMode(self.output_evaluation_mode)
         new_origin.setEvaluationStatus(DataModel.PRELIMINARY)
-
-        # Normally, magnitudes should be recalculated after relocation.
-        OriginMerger._copy_magnitudes(origin, new_origin)
-        OriginMerger._copy_station_magnitudes(origin, new_origin)
 
         return new_origin
 

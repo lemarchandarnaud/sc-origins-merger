@@ -19,11 +19,11 @@ iaspei91 profile by default) is done.
 	- If no merged origin is present, select all the origins that match the
       input agencys, authors and evaluation mode. Only the newest origin is
       kept for a given agency. So, `scomerger` merges these origins and a new
-      origin is created with all arrivals and relocated (`LOCSAT` by default,
-      magnitude is not yet updated for the moment).
-    - `scomerger` send a message to `scevent` to create the new origin in the
-	  database. An `originreference` is created as well to associate the origin
-	  to the event. `scevent` selects also a new preferred origin.
+      origin is created with all arrivals and relocated (`LOCSAT` by default).
+    - `scomerger` send a message to `scevent` and `scmag` to create the new
+      origin in the database and update magnitude. An `originreference` is
+      created as well to associate the origin to the event. `scevent` selects
+      also a new preferred origin.
 
 > **Note**
 >
