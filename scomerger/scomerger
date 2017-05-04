@@ -474,8 +474,8 @@ class OriginMerger(Client.Application):
                 for pick_dest, arrival_dest in zip(picks_dest, arrivals_dest):
                     network_code_dest = pick_dest.waveformID().networkCode()
                     station_code_dest = pick_dest.waveformID().stationCode()
-                    phase_code_dest = pick_dest.phaseHint().code()
-                    if pick.phaseHint().code() == phase_code_dest \
+                    phase_code_dest = arrival_dest.phase().code()
+                    if arrival.phase().code() == phase_code_dest \
                             and network_code == network_code_dest \
                             and station_code == station_code_dest:
                         # Arrival is already in the list, set a weight
