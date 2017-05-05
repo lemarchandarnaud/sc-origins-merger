@@ -660,11 +660,15 @@ class OriginMerger(Client.Application):
                     None
                 ))
                 # Locator with fixed depth
-                parameters.append((
-                    default_locator,
-                    self.locator_profile,
-                    origin.depth().value()
-                ))
+                try:
+                    parameters.append((
+                        default_locator,
+                        self.locator_profile,
+                        origin.depth().value()
+                    ))
+                except Core.ValueException:
+                    # Depth is not set
+                    pass
             else:
                 parameters.append((
                     default_locator,
