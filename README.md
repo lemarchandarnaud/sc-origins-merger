@@ -42,13 +42,10 @@ iaspei91 profile by default) is done.
 Installation
 ------------
 
-1. Copy the different files into seiscomp3 folders:
+1. Synchronise the source into seiscomp3 folder:
 
     ```bash
-    cp descriptions/scomerger.xml /path/to/seiscomp3/etc/descriptions/
-cp defaults/scomerger.cfg /path/to/seiscomp3/etc/defaults/
-cp init/scomerger.py /path/to/seiscomp3/etc/init/
-cp scomerger /path/to/seiscomp3/bin/
+    rsync -av seiscomp3/ /path/to/seiscomp3/
     ```
 
 2. Configure `scomerger`
